@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: FSL-1.1
+use crate::{Script, ScriptId};
+use multiutil::{EncodingInfo, Varbytes};
+use serde::ser::{self, SerializeTupleVariant};
+
+/// Serialize instance of [`crate::ScriptId`]
+impl ser::Serialize for ScriptId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(self.as_str())
+        } else {
+            Varbytes(self.clone().into()).serialize(serializer)
+        }
+    }
+}
+
+/// Serialize instance of [`crate::Script`]
+impl ser::Serialize for Script {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        if serializer.is_human_readable() {
+            match self {
+                Self::Bin(b) => {
+                    let mut ss = serializer.serialize_tuple_variant(
+                        "script",
+                        ScriptId::Bin.code() as u32,
+                        ScriptId::Bin.as_str(),
+                        1,
+                    )?;
+                    ss.serialize_field(&Varbytes::encoded_new(self.encoding(), b.clone()))?;
+                    ss.end()
+                }
+                Self::Code(s) => {
+                    let mut ss = serializer.serialize_tuple_variant(
+                        "script",
+                        ScriptId::Code.code() as u32,
+                        ScriptId::Code.as_str(),
+                        1,
+                    )?;
+                    ss.serialize_field(&s)?;
+                    ss.end()
+                }
+                Self::Cid(cid) => {
+                    let mut ss = serializer.serialize_tuple_variant(
+                        "script",
+                        ScriptId::Cid.code() as u32,
+                        ScriptId::Cid.as_str(),
+                        1,
+                    )?;
+                    ss.serialize_field(&cid)?;
+                    ss.end()
+                }
+            }
+        } else {
+            // regardless of the enum variant, we serialize scripts as a tuple
+            // consisting of (ScriptId, Varbytes)
+            match self {
+                Self::Bin(b) => (ScriptId::from(self), Varbytes(b.clone())).serialize(serializer),
+                Self::Code(s) => {
+                    (ScriptId::from(self), Varbytes(s.as_bytes().to_vec())).serialize(serializer)
+                }
+                Self::Cid(cid) => {
+                    (ScriptId::from(self), Varbytes(cid.clone().into())).serialize(serializer)
+                }
+            }
+        }
+    }
+}
