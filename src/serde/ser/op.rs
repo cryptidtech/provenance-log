@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Op, OpId, Value};
+use crate::{Op, OpId, Key, Value};
 use multiutil::Varbytes;
 use serde::ser::{self, SerializeTupleVariant};
 
@@ -57,17 +57,13 @@ impl ser::Serialize for Op {
             // (OpId, Varbytes, Value) and a Value serializes as a (ValueId, Varbytes)
             match self {
                 Self::Noop => {
-                    (OpId::from(self), Varbytes::default(), Value::default()).serialize(serializer)
+                    (OpId::from(self), Key::default(), Value::default()).serialize(serializer)
                 }
-                Self::Delete(key) => (
-                    OpId::from(self),
-                    Varbytes(key.as_bytes().to_vec()),
-                    Value::default(),
-                )
-                    .serialize(serializer),
+                Self::Delete(key) => {
+                    (OpId::from(self), key, Value::default()).serialize(serializer)
+                }
                 Self::Update(key, value) => {
-                    (OpId::from(self), Varbytes(key.as_bytes().to_vec()), value)
-                        .serialize(serializer)
+                    (OpId::from(self), key, value).serialize(serializer)
                 }
             }
         }

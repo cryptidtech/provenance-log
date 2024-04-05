@@ -124,6 +124,8 @@ impl<'de> Deserialize<'de> for Entry {
                 }
                 let version = version.ok_or_else(|| Error::missing_field("version"))?;
                 let vlad = vlad.ok_or_else(|| Error::missing_field("vlad"))?;
+                let prev = prev.ok_or_else(|| Error::missing_field("prev"))?;
+                let lipmaa = lipmaa.ok_or_else(|| Error::missing_field("lipmaa"))?;
                 let seqno = seqno.ok_or_else(|| Error::missing_field("seqno"))?;
                 let ops = ops.ok_or_else(|| Error::missing_field("ops"))?;
                 let lock = lock.ok_or_else(|| Error::missing_field("lock"))?;
@@ -150,8 +152,8 @@ impl<'de> Deserialize<'de> for Entry {
                 Codec,
                 u64,
                 Vlad,
-                Varbytes,
-                Varbytes,
+                Cid,
+                Cid,
                 u64,
                 Vec<Op>,
                 Script,
@@ -162,20 +164,6 @@ impl<'de> Deserialize<'de> for Entry {
             if sigil != SIGIL {
                 return Err(Error::custom("deserialized sigil is not an Entry sigil"));
             }
-            let prev = {
-                let p = prev.to_inner();
-                match p.len() {
-                    0 => None,
-                    _ => Some(Cid::try_from(p.as_slice()).map_err(Error::custom)?),
-                }
-            };
-            let lipmaa = {
-                let l = lipmaa.to_inner();
-                match l.len() {
-                    0 => None,
-                    _ => Some(Cid::try_from(l.as_slice()).map_err(Error::custom)?),
-                }
-            };
             let proof = proof.to_inner();
 
             Ok(Self {

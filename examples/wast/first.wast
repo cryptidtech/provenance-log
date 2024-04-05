@@ -5,29 +5,26 @@
 
   ;; function to execute the signature check for the first entry in a plog
   (func $main (export "move_every_zig") (param) (result i32)
+    ;; This is the assumed lock script used for verifying the first entry in
+    ;; the provenance log. It verifies a digital signature created over
+    ;; <"/entry/"> using an ephemeral public key pair that is destroyed
+    ;; immediately after creation. Only the public key is recorded in the first
+    ;; entry.
 
-    ;;   Stack
-    ;; ┌────────────────┐
-    ;; │ "/entry/proof" │
-    ;; ├────────────────┤
-    ;; │ "/entry/"      │
-    ;; ├────────────────┤
-    ;; │       ┄        │ 
-    ;; ┆                ┆
+    ;; Expected Stack
+    ;; ┌──────────────────┐
+    ;; │ <"/entry/proof"> │
+    ;; ├──────────────────┤
+    ;; │ <"/entry/">      │
+    ;; ├──────────────────┤
+    ;; │        ┆         │
+    ;; ┆                  ┆
 
     ;; check_signature("/ephemeral")
     i32.const 0
     i32.const 10
     call $check_signature
-    (if
-      (then
-        return
-      )
-      (else
-        i32.const 0
-        return
-      )
-    )
+    return
   )
 
   ;; export the memory

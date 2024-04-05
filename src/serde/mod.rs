@@ -108,7 +108,7 @@ mod tests {
             &[
                 Token::Tuple { len: 3 },       // noop tuple
                 Token::BorrowedBytes(&[1, 0]), // varuint 1 byte, value 0 "noop"
-                Token::BorrowedBytes(&[0]),    // varbytes len as varuint, 0
+                Token::BorrowedBytes(&[2, 1, 47]),    // varbytes len as varuint, 0
                 Token::Tuple { len: 2 },       // value tuple
                 Token::BorrowedBytes(&[1, 0]), // varuint 1 byte, value 0 "nil"
                 Token::BorrowedBytes(&[0]),    // varbytes len as varuint, 0
@@ -142,23 +142,23 @@ mod tests {
     fn test_op_default_cbor() {
         let o = Op::default();
         let b = serde_cbor::to_vec(&o).unwrap();
-        assert_eq!(b, hex::decode("834201004100824201004100").unwrap());
+        assert_eq!(b, vec![131, 66, 1, 0, 67, 2, 1, 47, 130, 66, 1, 0, 65, 0]);
         assert_eq!(o, serde_cbor::from_slice(b.as_slice()).unwrap());
     }
 
     #[test]
     fn test_op_delete_compact() {
-        let o = Op::Delete("zig".into());
+        let o = Op::Delete("/zig".try_into().unwrap());
         assert_tokens(
             &o.compact(),
             &[
                 Token::Tuple { len: 3 },
                 Token::BorrowedBytes(&[1, 1]),
-                Token::BorrowedBytes(&[3, 122, 105, 103]),
-                Token::Tuple { len: 2 },       // value tuple
-                Token::BorrowedBytes(&[1, 0]), // varuint 1 byte, value 0 "nil"
-                Token::BorrowedBytes(&[0]),    // varbytes len as varuint, 0
-                Token::TupleEnd,               // end of value tuple
+                Token::BorrowedBytes(&[5, 4, 47, 122, 105, 103]),
+                Token::Tuple { len: 2 },
+                Token::BorrowedBytes(&[1, 0]),
+                Token::BorrowedBytes(&[0]),
+                Token::TupleEnd,
                 Token::TupleEnd,
             ],
         );
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn test_op_delete_readable() {
-        let o = Op::Delete("zig".into());
+        let o = Op::Delete("/zig".try_into().unwrap());
         assert_tokens(
             &o.readable(),
             &[
@@ -175,7 +175,7 @@ mod tests {
                     variant: "delete",
                     len: 1,
                 },
-                Token::BorrowedStr("zig"),
+                Token::BorrowedStr("/zig"),
                 Token::TupleVariantEnd,
             ],
         );
@@ -183,43 +183,43 @@ mod tests {
 
     #[test]
     fn test_op_delete_json() {
-        let o = Op::Delete("zig".into());
+        let o = Op::Delete("/zig".try_into().unwrap());
         let s = serde_json::to_string(&o).unwrap();
-        assert_eq!(s, "{\"delete\":[\"zig\"]}".to_string());
+        assert_eq!(s, "{\"delete\":[\"/zig\"]}".to_string());
         assert_eq!(o, serde_json::from_str(&s).unwrap());
     }
 
     #[test]
     fn test_op_update_json() {
-        let o = Op::Update("move".into(), Value::Str("zig".into()));
+        let o = Op::Update("/move".try_into().unwrap(), Value::Str("zig".into()));
         let s = serde_json::to_string(&o).unwrap();
-        assert_eq!(s, "{\"update\":[\"move\",{\"str\":[\"zig\"]}]}".to_string());
+        assert_eq!(s, "{\"update\":[\"/move\",{\"str\":[\"zig\"]}]}".to_string());
         assert_eq!(o, serde_json::from_str(&s).unwrap());
     }
 
     #[test]
     fn test_op_update_data_value_json() {
-        let o = Op::Update("move".into(), Value::Data(vec![1]));
+        let o = Op::Update("/move".try_into().unwrap(), Value::Data(vec![1]));
         let s = serde_json::to_string(&o).unwrap();
         assert_eq!(
             s,
-            "{\"update\":[\"move\",{\"data\":[\"f0101\"]}]}".to_string()
+            "{\"update\":[\"/move\",{\"data\":[\"f0101\"]}]}".to_string()
         );
         assert_eq!(o, serde_json::from_str(&s).unwrap());
     }
 
     #[test]
     fn test_op_update_default_value_json() {
-        let o = Op::Update("move".into(), Value::default());
+        let o = Op::Update("/move".try_into().unwrap(), Value::default());
         let s = serde_json::to_string(&o).unwrap();
-        assert_eq!(s, "{\"update\":[\"move\",\"nil\"]}".to_string());
+        assert_eq!(s, "{\"update\":[\"/move\",\"nil\"]}".to_string());
         assert_eq!(o, serde_json::from_str(&s).unwrap());
     }
     #[test]
     fn test_op_delete_cbor() {
-        let o = Op::Delete("zig".into());
+        let o = Op::Delete("/zig".try_into().unwrap());
         let b = serde_cbor::to_vec(&o).unwrap();
-        assert_eq!(b, hex::decode("8342010144037a6967824201004100").unwrap());
+        assert_eq!(b, vec![131, 66, 1, 1, 70, 5, 4, 47, 122, 105, 103, 130, 66, 1, 0, 65, 0]);
         assert_eq!(o, serde_cbor::from_slice(b.as_slice()).unwrap());
     }
 
@@ -314,21 +314,19 @@ mod tests {
         assert_tokens(
             &s.readable(),
             &[
-                Token::TupleVariant {
-                    name: "script",
-                    variant: "cid",
-                    len: 1,
-                },
-                Token::Struct {
-                    name: "cid",
-                    len: 3,
-                },
+                Token::TupleVariant { name: "script", variant: "cid", len: 1, },
+                Token::Struct { name: "cid", len: 3, },
                 Token::BorrowedStr("version"),
                 Token::U64(0),
                 Token::BorrowedStr("encoding"),
                 Token::BorrowedStr("dag-pb"),
                 Token::BorrowedStr("hash"),
-                Token::BorrowedStr("Qmdb16CztyugMSs5anEPrJ6bLeo39bTGcM13zNPqjqUidT"),
+                Token::Struct { name: "multihash", len: 2, },
+                Token::BorrowedStr("codec"),
+                Token::BorrowedStr("sha2-256"),
+                Token::BorrowedStr("hash"),
+                Token::BorrowedStr("f20e28c7aeb3a876b25ed822472e47a696fe25214c1672f0972195f9b64eea41e7e"),
+                Token::StructEnd,
                 Token::StructEnd,
                 Token::TupleVariantEnd,
             ],
@@ -349,7 +347,7 @@ mod tests {
 
         let t = Script::Cid(v0);
         let s = serde_json::to_string(&t).unwrap();
-        assert_eq!(s, "{\"cid\":[{\"version\":0,\"encoding\":\"dag-pb\",\"hash\":\"Qmdb16CztyugMSs5anEPrJ6bLeo39bTGcM13zNPqjqUidT\"}]}".to_string());
+        assert_eq!(s, "{\"cid\":[{\"version\":0,\"encoding\":\"dag-pb\",\"hash\":{\"codec\":\"sha2-256\",\"hash\":\"f20e28c7aeb3a876b25ed822472e47a696fe25214c1672f0972195f9b64eea41e7e\"}}]}");
         assert_eq!(t, serde_json::from_str(&s).unwrap());
     }
 
@@ -418,21 +416,19 @@ mod tests {
         assert_tokens(
             &s.readable(),
             &[
-                Token::TupleVariant {
-                    name: "script",
-                    variant: "cid",
-                    len: 1,
-                },
-                Token::Struct {
-                    name: "cid",
-                    len: 3,
-                },
+                Token::TupleVariant { name: "script", variant: "cid", len: 1, },
+                Token::Struct { name: "cid", len: 3, },
                 Token::BorrowedStr("version"),
                 Token::U64(1),
                 Token::BorrowedStr("encoding"),
                 Token::BorrowedStr("dag-cbor"),
                 Token::BorrowedStr("hash"),
-                Token::BorrowedStr("bcrafpew23fqilnqhnohe4y5vpdeq2azwxsvn55hsi4cn7btbjfjguhtnep4j4imk2p3bokt6e3tog6r55jzi4xzdfzaws2wsq26mveqbxy"),
+                Token::Struct { name: "multihash", len: 2, },
+                Token::BorrowedStr("codec"),
+                Token::BorrowedStr("sha3-512"),
+                Token::BorrowedStr("hash"),
+                Token::BorrowedStr("f405792dad96085b6076b8e4e63b578c90d0336bcaadef4f24704df866149526a1e6d23f89e218ad3f6172a7e26e6e37a3dea728e5f232e41696ad286bcca9201be"),
+                Token::StructEnd,
                 Token::StructEnd,
                 Token::TupleVariantEnd,
             ],
@@ -454,7 +450,7 @@ mod tests {
 
         let t = Script::Cid(v1);
         let s = serde_json::to_string(&t).unwrap();
-        assert_eq!(s, "{\"cid\":[{\"version\":1,\"encoding\":\"dag-cbor\",\"hash\":\"bcrafpew23fqilnqhnohe4y5vpdeq2azwxsvn55hsi4cn7btbjfjguhtnep4j4imk2p3bokt6e3tog6r55jzi4xzdfzaws2wsq26mveqbxy\"}]}".to_string());
+        assert_eq!(s, "{\"cid\":[{\"version\":1,\"encoding\":\"dag-cbor\",\"hash\":{\"codec\":\"sha3-512\",\"hash\":\"f405792dad96085b6076b8e4e63b578c90d0336bcaadef4f24704df866149526a1e6d23f89e218ad3f6172a7e26e6e37a3dea728e5f232e41696ad286bcca9201be\"}}]}");
         assert_eq!(t, serde_json::from_str(&s).unwrap());
     }
 

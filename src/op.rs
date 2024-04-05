@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::OpError, Error, Value};
+use crate::{error::OpError, Error, Key, Value};
 use core::fmt;
 use multitrait::{EncodeInto, TryDecodeFrom};
-use multiutil::Varbytes;
 
 /// the identifiers for the operations performed on the namespace in each entry
 #[repr(u8)]
@@ -113,9 +112,9 @@ pub enum Op {
     #[default]
     Noop,
     /// delete the value associated with the key
-    Delete(String),
+    Delete(Key),
     /// update/create the key value pair
-    Update(String, Value),
+    Update(Key, Value),
 }
 
 impl Into<Vec<u8>> for Op {
@@ -127,12 +126,12 @@ impl Into<Vec<u8>> for Op {
             Self::Noop => v,
             Self::Delete(key) => {
                 // add in the key string
-                v.append(&mut Varbytes(key.as_bytes().to_vec()).into());
+                v.append(&mut key.clone().into());
                 v
             }
             Self::Update(key, value) => {
                 // add in the key string
-                v.append(&mut Varbytes(key.as_bytes().to_vec()).into());
+                v.append(&mut key.clone().into());
                 // add in the value data
                 v.append(&mut value.clone().into());
                 v
@@ -159,13 +158,11 @@ impl<'a> TryDecodeFrom<'a> for Op {
         let (v, ptr) = match id {
             OpId::Noop => (Self::Noop, ptr),
             OpId::Delete => {
-                let (key, ptr) = Varbytes::try_decode_from(ptr)?;
-                let key = String::from_utf8(key.to_inner())?;
+                let (key, ptr) = Key::try_decode_from(ptr)?;
                 (Self::Delete(key), ptr)
             }
             OpId::Update => {
-                let (key, ptr) = Varbytes::try_decode_from(ptr)?;
-                let key = String::from_utf8(key.to_inner())?;
+                let (key, ptr) = Key::try_decode_from(ptr)?;
                 let (value, ptr) = Value::try_decode_from(ptr)?;
                 (Self::Update(key, value), ptr)
             }

@@ -6,7 +6,6 @@ use crate::{
 use core::fmt;
 use multicid::{Cid, Vlad};
 use multicodec::Codec;
-use multiutil::Varbytes;
 use serde::{
     de::{Error, MapAccess, Visitor},
     Deserialize, Deserializer,
@@ -108,6 +107,8 @@ impl<'de> Deserialize<'de> for Log {
                 let version = version.ok_or_else(|| Error::missing_field("version"))?;
                 let vlad = vlad.ok_or_else(|| Error::missing_field("vlad"))?;
                 let first_lock = first_lock.ok_or_else(|| Error::missing_field("first_lock"))?;
+                let foot = foot.ok_or_else(|| Error::missing_field("foot"))?;
+                let head = head.ok_or_else(|| Error::missing_field("head"))?;
                 let entries = entries.ok_or_else(|| Error::missing_field("entries"))?;
                 Ok(Self::Value {
                     version,
@@ -128,28 +129,14 @@ impl<'de> Deserialize<'de> for Log {
                 u64,
                 Vlad,
                 Script,
-                Varbytes,
-                Varbytes,
+                Cid,
+                Cid,
                 Vec<(Cid, Entry)>,
             ) = Deserialize::deserialize(deserializer)?;
 
             if sigil != SIGIL {
                 return Err(Error::custom("deserialized sigil is not an Log sigil"));
             }
-            let foot = {
-                let p = foot.to_inner();
-                match p.len() {
-                    0 => None,
-                    _ => Some(Cid::try_from(p.as_slice()).map_err(Error::custom)?),
-                }
-            };
-            let head = {
-                let l = head.to_inner();
-                match l.len() {
-                    0 => None,
-                    _ => Some(Cid::try_from(l.as_slice()).map_err(Error::custom)?),
-                }
-            };
             let mut entries = Entries::new();
             ent.iter()
                 .try_for_each(|(cid, entry)| -> Result<(), D::Error> {

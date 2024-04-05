@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::EntryError, Error, Lipmaa, Op, Script, Value};
+use crate::{error::EntryError, Error, Lipmaa, Op, Script};
 use core::fmt;
 use multibase::Base;
 use multicid::{cid, Cid, EncodedCid, Vlad};
 use multicodec::Codec;
 use multihash::mh;
-use multitrait::TryDecodeFrom;
+use multitrait::{Null, TryDecodeFrom};
 use multiutil::{BaseEncoded, CodecInfo, EncodingInfo, Varbytes, Varuint};
 use std::cmp::Ordering;
 
@@ -27,9 +27,9 @@ pub struct Entry {
     /// long lived address for this provenance log
     pub(crate) vlad: Vlad,
     /// link to the previous entry
-    pub(crate) prev: Option<Cid>,
+    pub(crate) prev: Cid,
     /// lipmaa link provides O(log n) traversal between entries
-    pub(crate) lipmaa: Option<Cid>,
+    pub(crate) lipmaa: Cid,
     /// sequence numbering of entries
     pub(crate) seqno: u64,
     /// operations on the namespace in this entry
@@ -43,7 +43,7 @@ pub struct Entry {
     /// the unlock script and required by the lock script in the previous
     /// Entry. this data is generated using the Entry Builder by passing a
     /// closure to the `try_build` function that gets called with the complete
-    /// Entry and the proof `Codec` to generate this data.
+    /// serialized Entry to generate this data.
     pub(crate) proof: Vec<u8>,
 }
 
@@ -87,51 +87,37 @@ impl EncodingInfo for Entry {
     }
 }
 
-impl wacc::Pairs<Value> for Entry {
-    type Error = Error;
-
-    fn get(&self, key: &str) -> Option<Value> {
+impl wacc::Pairs for Entry {
+    fn get(&self, key: &str) -> Option<wacc::Value> {
         let value = match key {
-            "entry" => {
+            "/entry/" => {
                 let mut e = self.clone();
                 e.proof = Vec::default();
-                Some(Value::Data(e.into()))
+                Some(wacc::Value::Bin(e.into()))
             }
-            "version" => Some(Value::Data(Varuint(self.version).into())),
-            "vlad" => Some(Value::Data(self.vlad.clone().into())),
-            "prev" => {
-                if let Some(prev) = &self.prev {
-                    Some(Value::Data(Varbytes(prev.clone().into()).into()))
-                } else {
-                    Some(Value::Data(Varbytes::default().into()))
-                }
-            }
-            "lipmaa" => {
-                if let Some(lipmaa) = &self.lipmaa {
-                    Some(Value::Data(Varbytes(lipmaa.clone().into()).into()))
-                } else {
-                    Some(Value::Data(Varbytes::default().into()))
-                }
-            }
-            "seqno" => Some(Value::Data(Varuint(self.seqno).into())),
-            "ops" => {
+            "/entry/version" => Some(wacc::Value::Bin(Varuint(self.version).into())),
+            "/entry/vlad" => Some(wacc::Value::Bin(self.vlad.clone().into())),
+            "/entry/prev" => Some(wacc::Value::Bin(self.prev.clone().into())),
+            "/entry/lipmaa" => Some(wacc::Value::Bin(self.lipmaa.clone().into())),
+            "/entry/seqno" => Some(wacc::Value::Bin(Varuint(self.seqno).into())),
+            "/entry/ops" => {
                 let mut v = Vec::new();
                 v.append(&mut Varuint(self.ops.len()).into());
                 self.ops
                     .iter()
                     .for_each(|op| v.append(&mut op.clone().into()));
-                Some(Value::Data(v))
+                Some(wacc::Value::Bin(v))
             }
-            "lock" => Some(Value::Data(self.lock.clone().into())),
-            "unlock" => Some(Value::Data(self.unlock.clone().into())),
-            "proof" => Some(Value::Data(self.proof.clone())),
+            "/entry/lock" => Some(wacc::Value::Bin(self.lock.clone().into())),
+            "/entry/unlock" => Some(wacc::Value::Bin(self.unlock.clone().into())),
+            "/entry/proof" => Some(wacc::Value::Bin(self.proof.clone())),
             _ => None,
         };
-        //println!("entry get: {} => {:?}", key, value);
         value
     }
-    fn put(&mut self, _key: &str, _value: &Value) -> Result<Value, Self::Error> {
-        Err(EntryError::ReadOnly.into())
+
+    fn put(&mut self, _key: &str, _value: &wacc::Value) -> Option<wacc::Value> {
+        None
     }
 }
 
@@ -145,23 +131,9 @@ impl Into<Vec<u8>> for Entry {
         // add in the vlad
         v.append(&mut self.vlad.clone().into());
         // add in the prev link
-        if let Some(prev) = self.prev {
-            // encodes the length of the encoded cid as a varuint followed by
-            // the cid data itself
-            v.append(&mut Varbytes(prev.clone().into()).into());
-        } else {
-            // encodes zero-length varbytes
-            v.append(&mut Varbytes::default().into());
-        }
+        v.append(&mut self.prev.clone().into());
         // add in the lipmaa link
-        if let Some(lipmaa) = self.lipmaa {
-            // encodes the length of the encoded cid as a varuint followed by
-            // the cid data itself
-            v.append(&mut Varbytes(lipmaa.clone().into()).into());
-        } else {
-            // encodes a zero-length varbytes
-            v.append(&mut Varbytes::default().into());
-        }
+        v.append(&mut self.lipmaa.clone().into());
         // add in the seqno
         v.append(&mut Varuint(self.seqno).into());
         // add in the number of ops
@@ -206,20 +178,10 @@ impl<'a> TryDecodeFrom<'a> for Entry {
         }
         // decode the vlad
         let (vlad, ptr) = Vlad::try_decode_from(ptr)?;
-        // decode the prev cid if there is one
-        let (opt, ptr) = Varbytes::try_decode_from(ptr)?;
-        let prev = if opt.len() > 0 {
-            Some(Cid::try_from(opt.as_slice())?)
-        } else {
-            None
-        };
-        // decode the lipmaa cid if there is one
-        let (opt, ptr) = Varbytes::try_decode_from(ptr)?;
-        let lipmaa = if opt.len() > 0 {
-            Some(Cid::try_from(opt.as_slice())?)
-        } else {
-            None
-        };
+        // decode the prev cid
+        let (prev, ptr) = Cid::try_decode_from(ptr)?;
+        // decode the lipmaa cid
+        let (lipmaa, ptr) = Cid::try_decode_from(ptr)?;
         // decode the seqno
         let (seqno, ptr) = Varuint::<u64>::try_decode_from(ptr)?;
         let seqno = seqno.to_inner();
@@ -272,7 +234,7 @@ impl fmt::Debug for Entry {
             SIGIL,
             self.seqno,
             EncodedCid::new(Base::Base32Lower, self.cid()),
-            EncodedCid::new(Base::Base32Lower, self.prev.clone().unwrap_or_default())
+            EncodedCid::new(Base::Base32Lower, self.prev())
         )
     }
 }
@@ -291,7 +253,7 @@ impl Default for Entry {
 
 impl Entry {
     /// Get the cid of the previous entry if there is one
-    pub fn prev(&self) -> Option<Cid> {
+    pub fn prev(&self) -> Cid {
         self.prev.clone()
     }
 
@@ -309,7 +271,7 @@ impl Entry {
     pub fn cid(&self) -> Cid {
         let v: Vec<u8> = self.clone().into();
         cid::Builder::new(Codec::Cidv1)
-            .with_target_codec(Codec::Raw)
+            .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha3512, v.as_slice())
                     .unwrap()
@@ -409,18 +371,13 @@ impl Builder {
         F: FnMut(&mut Entry) -> Result<(), Error>,
     {
         let version = self.version;
-        let vlad = self.vlad.clone().ok_or_else(|| EntryError::MissingVlad)?;
-        let prev = self.prev.clone();
+        let vlad = self.vlad.clone().ok_or(EntryError::MissingVlad)?;
+        let prev = self.prev.clone().unwrap_or_else(|| Cid::null());
         let seqno = self.seqno.unwrap_or_default();
-        let lipmaa = match &self.lipmaa {
-            Some(lipmaa) => Some(lipmaa.clone()),
-            None => {
-                if seqno.is_lipmaa() {
-                    return Err(EntryError::MissingLipmaaLink.into());
-                } else {
-                    None
-                }
-            }
+        let lipmaa = if seqno.is_lipmaa() {
+            self.lipmaa.clone().ok_or(EntryError::MissingLipmaaLink)?
+        } else {
+            Cid::null()
         };
         let ops = self.ops.clone().unwrap_or_default();
         let lock = self.lock.clone().ok_or(EntryError::MissingLockScript)?;
@@ -504,7 +461,7 @@ mod tests {
             .unwrap();
 
         let script = Script::Cid(cid);
-        let op = Op::Update("move".into(), Value::Str("zig!".into()));
+        let op = Op::Update("/move".try_into().unwrap(), Value::Str("zig!".into()));
         let entry = Builder::default()
             .with_vlad(&vlad)
             .with_lock(&script)
@@ -521,7 +478,7 @@ mod tests {
         assert_eq!(entry.seqno(), 0);
         for op in entry.ops() {
             assert_eq!(
-                Op::Update("move".into(), Value::Str("zig!".into())),
+                Op::Update("/move".try_into().unwrap(), Value::Str("zig!".into())),
                 op.clone()
             );
         }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
 //! Serde serialization for provenance log types
 mod entry;
+mod key;
 mod log;
 mod op;
 mod script;

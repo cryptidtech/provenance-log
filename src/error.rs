@@ -12,12 +12,15 @@ pub enum Error {
     /// Operation error
     #[error(transparent)]
     Op(#[from] OpError),
-    /// Pairs error
+    /// Kvp error
     #[error(transparent)]
-    Pairs(#[from] PairsError),
+    Kvp(#[from] KvpError),
     /// Script error
     #[error(transparent)]
     Script(#[from] ScriptError),
+    /// Key error 
+    #[error(transparent)]
+    Key(#[from] KeyError),
     /// Operation error
     #[error(transparent)]
     Value(#[from] ValueError),
@@ -121,7 +124,7 @@ pub enum EntryError {
 /// Errors created by this library
 #[derive(Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum PairsError {
+pub enum KvpError {
     /// Sequence number must be zero
     #[error("seqno must be zero")]
     NonZeroSeqNo,
@@ -173,6 +176,18 @@ pub enum OpError {
     /// Invalid operation name
     #[error("invalid operation name {0}")]
     InvalidOperationName(String),
+}
+
+/// Key errors created by this library
+#[derive(Clone, Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum KeyError {
+    /// Empty key string 
+    #[error("the key string is empty")]
+    EmptyKey,
+    /// Missing root key separator
+    #[error("key string doesn't begin with the separator: {0}")]
+    MissingRootSeparator(String),
 }
 
 /// Errors created by this library

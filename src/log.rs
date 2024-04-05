@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{entry, error::LogError, Entry, Error, Pairs, Script};
+use crate::{entry, error::LogError, Entry, Error, Kvp, Script, Stk};
 use core::fmt;
 use multibase::Base;
 use multicid::{Cid, Vlad};
 use multicodec::Codec;
-use multitrait::TryDecodeFrom;
-use multiutil::{BaseEncoded, CodecInfo, EncodingInfo, Varbytes, Varuint};
+use multitrait::{Null, TryDecodeFrom};
+use multiutil::{BaseEncoded, CodecInfo, EncodingInfo, Varuint};
 use std::collections::BTreeMap;
 use wacc::{prelude::StoreLimitsBuilder, vm};
 
@@ -34,9 +34,9 @@ pub struct Log {
     /// The lock script for the first entry
     pub first_lock: Script,
     /// The first entry in the log
-    pub foot: Option<Cid>,
+    pub foot: Cid,
     /// The latest entry in the log
-    pub head: Option<Cid>,
+    pub head: Cid,
     /// Entry objects are stored in a hashmap indexed by their Cid
     pub entries: Entries,
 }
@@ -75,23 +75,9 @@ impl Into<Vec<u8>> for Log {
         // add in the lock script for the first entry
         v.append(&mut self.first_lock.clone().into());
         // add in the foot cid
-        if let Some(foot) = self.foot {
-            // encodes the length of the encoded cid as a varuint followed by
-            // the cid data itself
-            v.append(&mut Varbytes(foot.clone().into()).into());
-        } else {
-            // encodes zero-length varbytes
-            v.append(&mut Varbytes::default().into());
-        }
+        v.append(&mut self.foot.clone().into());
         // add in the head cid
-        if let Some(head) = self.head {
-            // encodes the length of the encoded cid as a varuint followed by
-            // the cid data itself
-            v.append(&mut Varbytes(head.clone().into()).into());
-        } else {
-            // encodes zero-length varbytes
-            v.append(&mut Varbytes::default().into());
-        }
+        v.append(&mut self.head.clone().into());
         // add in the entry count
         v.append(&mut Varuint(self.entries.len()).into());
         // add in the entries
@@ -128,20 +114,10 @@ impl<'a> TryDecodeFrom<'a> for Log {
         let (vlad, ptr) = Vlad::try_decode_from(ptr)?;
         // decode the lock script for the first entry
         let (first_lock, ptr) = Script::try_decode_from(ptr)?;
-        // decode the foot cid if there is one
-        let (opt, ptr) = Varbytes::try_decode_from(ptr)?;
-        let foot = if opt.len() > 0 {
-            Some(Cid::try_from(opt.as_slice())?)
-        } else {
-            None
-        };
+        // decode the foot cid
+        let (foot, ptr) = Cid::try_decode_from(ptr)?;
         // decode the head cid if there is one
-        let (opt, ptr) = Varbytes::try_decode_from(ptr)?;
-        let head = if opt.len() > 0 {
-            Some(Cid::try_from(opt.as_slice())?)
-        } else {
-            None
-        };
+        let (head, ptr) = Cid::try_decode_from(ptr)?;
         // decode the number of entries
         let (num_entries, ptr) = Varuint::<usize>::try_decode_from(ptr)?;
         // decode the entries
@@ -177,16 +153,14 @@ impl<'a> TryDecodeFrom<'a> for Log {
 
 impl fmt::Debug for Log {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let head = self.head.clone().unwrap_or_default();
-        let foot = self.foot.clone().unwrap_or_default();
         write!(
             f,
             "{:?} - {:?} - {:?} - {:?} - {:?} - Entries: {}",
             self.codec(),
             self.version,
             self.vlad,
-            head,
-            foot,
+            self.head,
+            self.foot,
             self.entries.len()
         )
     }
@@ -232,11 +206,12 @@ impl Log {
 
     /// Verifies all entries in the log
     pub fn verify(&self) -> Result<(), Error> {
-        let mut kvp = Pairs::default();
+        let mut kvp = Kvp::default();
         let mut seqno: Option<u64> = None;
         let mut lock = self.first_lock.clone();
         for entry in self.iter() {
-            let mut stack = Vec::default();
+            let mut pstack = Stk::default();
+            let mut rstack = Stk::default();
 
             // check the seqno meet the criteria
             if let Some(s) = seqno {
@@ -255,7 +230,8 @@ impl Log {
                 // stack in the vm::Context set up.
                 let unlock_ctx = vm::Context {
                     pairs: entry,
-                    stack: &mut stack,
+                    pstack: &mut pstack,
+                    rstack: &mut rstack,
                     check_count: 0,
                     log: Vec::default(),
                     limiter: StoreLimitsBuilder::new()
@@ -278,13 +254,7 @@ impl Log {
             };
 
             if !result {
-                // build a meaningful error message containing the stack state
-                let mut s = "unlock script failed\nstack:\n".to_string();
-                s.push_str("\t top --\n");
-                for v in stack.iter().rev() {
-                    s.push_str(format!("\t\t{}\n\t     --\n", v).as_str());
-                }
-                return Err(LogError::VerifyFailed(s).into());
+                return Err(LogError::VerifyFailed(format!("unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}", rstack, pstack)).into());
             }
 
             // set the entry to look into for proof and message values
@@ -300,7 +270,8 @@ impl Log {
             let result = {
                 let lock_ctx = vm::Context {
                     pairs: &kvp,
-                    stack: &mut stack,
+                    pstack: &mut pstack,
+                    rstack: &mut rstack,
                     check_count: 0,
                     log: Vec::default(),
                     limiter: StoreLimitsBuilder::new()
@@ -332,13 +303,7 @@ impl Log {
                 // update the lock script to validate the next entry
                 lock = entry.lock.clone();
             } else {
-                // build a meaningful error message containing the stack state
-                let mut s = "lock script failed\nstack:\n".to_string();
-                s.push_str("\t top --\n");
-                for v in stack.iter().rev() {
-                    s.push_str(format!("\t\t{}\n\t     --\n", v).as_str());
-                }
-                return Err(LogError::VerifyFailed(s).into());
+                return Err(LogError::VerifyFailed(format!("unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}", rstack, pstack)).into());
             }
         }
         Ok(())
@@ -417,22 +382,25 @@ impl Builder {
             .first_lock
             .clone()
             .ok_or_else(|| LogError::MissingFirstEntryLockScript)?;
-        let foot = self.foot.clone();
-        let head = self.head.clone();
+        let foot = self.foot.clone().ok_or_else(|| LogError::MissingFoot)?;
+        let head = self.head.clone().ok_or_else(|| LogError::MissingHead)?;
         let entries = self.entries.clone();
         if entries.len() == 0 {
             return Err(LogError::MissingEntries.into());
         } else {
             // start at the head and walk the prev links to the foot to ensure
             // they are all connected
-            let mut c = head.clone().ok_or_else(|| LogError::MissingHead)?;
-            let f = foot.clone().ok_or_else(|| LogError::MissingFoot)?;
+            let mut c = head.clone();
+            let f = foot.clone();
             while c != f {
                 if let Some(entry) = entries.get(&c) {
                     if c != entry.cid() {
                         return Err(LogError::EntryCidMismatch.into());
                     }
-                    c = entry.prev().ok_or_else(|| LogError::BrokenEntryLinks)?;
+                    c = entry.prev();
+                    if c.is_null() {
+                        return Err(LogError::BrokenEntryLinks.into());
+                    }
                 } else {
                     return Err(LogError::BrokenPrevLink.into());
                 }
@@ -472,7 +440,7 @@ mod tests {
     fn get_key_update_op(k: &str, key: &Multikey) -> Op {
         let kcv = key.conv_view().unwrap();
         let pk = kcv.to_public_key().unwrap();
-        Op::Update(k.into(), Value::Data(pk.into()))
+        Op::Update(k.try_into().unwrap(), Value::Data(pk.into()))
     }
 
     fn get_hash_update_op(k: &str, preimage: &str) -> Op {
@@ -480,7 +448,7 @@ mod tests {
             .unwrap()
             .try_build()
             .unwrap();
-        Op::Update(k.into(), Value::Data(mh.into()))
+        Op::Update(k.try_into().unwrap(), Value::Data(mh.into()))
     }
 
     #[test]
@@ -513,7 +481,7 @@ mod tests {
             .try_build()
             .unwrap();
 
-        // build a vlad
+        // build a vlad from the cid
         let vlad = vlad::Builder::default()
             .with_signing_key(&ephemeral)
             .with_cid(&cid)
@@ -523,8 +491,8 @@ mod tests {
         // load the entry scripts
         let lock = load_script("lock.wast");
         let unlock = load_script("unlock.wast");
-        let ephemeral_op = get_key_update_op("ephemeral", &ephemeral);
-        let pubkey_op = get_key_update_op("pubkey", &key);
+        let ephemeral_op = get_key_update_op("/ephemeral", &ephemeral);
+        let pubkey_op = get_key_update_op("/pubkey", &key);
 
         let entry = entry::Builder::default()
             .with_vlad(&vlad)
@@ -556,8 +524,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(vlad, log.vlad);
-        assert!(log.foot.is_some());
-        assert!(log.head.is_some());
+        assert!(!log.foot.is_null());
+        assert!(!log.head.is_null());
         assert_eq!(log.foot, log.head);
         assert_eq!(Some(entry), log.iter().next().cloned());
         assert!(log.verify().is_ok());
@@ -601,12 +569,12 @@ mod tests {
             .try_build()
             .unwrap();
 
-        let ephemeral_op = get_key_update_op("ephemeral", &ephemeral);
-        let pubkey1_op = get_key_update_op("pubkey", &key1);
-        let pubkey2_op = get_key_update_op("pubkey", &key2);
-        let pubkey3_op = get_key_update_op("pubkey", &key3);
-        let preimage1_op = get_hash_update_op("hash", "for great justice");
-        let preimage2_op = get_hash_update_op("hash", "move every zig");
+        let ephemeral_op = get_key_update_op("/ephemeral", &ephemeral);
+        let pubkey1_op = get_key_update_op("/pubkey", &key1);
+        let pubkey2_op = get_key_update_op("/pubkey", &key2);
+        let pubkey3_op = get_key_update_op("/pubkey", &key3);
+        let preimage1_op = get_hash_update_op("/hash", "for great justice");
+        let preimage2_op = get_hash_update_op("/hash", "move every zig");
 
         // load the entry scripts
         let lock = load_script("lock.wast");
@@ -637,7 +605,7 @@ mod tests {
             .with_lock(&lock)
             .with_unlock(&unlock)
             .with_prev(&e1.cid())
-            .add_op(&Op::Delete("ephemeral".into()))
+            .add_op(&Op::Delete("/ephemeral".try_into().unwrap()))
             .add_op(&pubkey2_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
@@ -701,7 +669,13 @@ mod tests {
         assert_eq!(Some(&e3), iter.next());
         assert_eq!(Some(&e4), iter.next());
         assert_eq!(None, iter.next());
-        assert!(log.verify().is_ok());
+        match log.verify() {
+            Ok(_) => println!("log.verify() worked!!"),
+            Err(e) => {
+                println!("verify failed: {}", e.to_string());
+                panic!()
+            }
+        }
     }
 }
 
@@ -709,5 +683,5 @@ mod tests {
 the gifts of wilderness are given
 —in no small measure or part—
 to those who call it livin'
-havin' outside inside their heart
+having outside inside their heart
 */

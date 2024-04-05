@@ -16,6 +16,10 @@ pub use entry::Entry;
 pub mod error;
 pub use error::Error;
 
+/// Key-path used in the Kvp
+pub mod key;
+pub use key::Key;
+
 /// Lipmaa numbering for sequence numbers
 pub mod lipmaa;
 pub use lipmaa::Lipmaa;
@@ -30,7 +34,7 @@ pub use op::{Op, OpId};
 
 /// The virtual key-value pair store
 pub mod pairs;
-pub use pairs::Pairs;
+pub use pairs::Kvp;
 
 /// Script related functions
 pub mod script;
@@ -39,6 +43,10 @@ pub use script::{Script, ScriptId};
 /// Serde serialization
 #[cfg(feature = "serde")]
 pub mod serde;
+
+/// The parameter and return value stack type 
+pub mod stack;
+pub use stack::Stk;
 
 /// Entry Value related functions
 pub mod value;

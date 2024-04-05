@@ -6,12 +6,18 @@
 
   ;; standard lock function
   (func $main (export "move_every_zig") (param) (result i32)
-    ;; check_version returned true so try to verify a threshold signature
-    ;; as the proof
+    ;; Expected Stack (pubkey or preimage)
+    ;; ┌──────────────────┐
+    ;; │ <"/entry/proof"> │
+    ;; ├──────────────────┤
+    ;; │ <"/entry/">      │
+    ;; ├──────────────────┤
+    ;; │        ┆         │
+    ;; ┆                  ┆
 
-    ;; check_signature("/pubkey")
+    ;; check_signature("/tpubkey")
     i32.const 0
-    i32.const 7
+    i32.const 8
     call $check_signature
 
     (if 
@@ -25,14 +31,14 @@
         ;; key signature as the proof 
 
         ;; check_signature("/pubkey")
-        i32.const 0
+        i32.const 8
         i32.const 7
         call $check_signature
 
         (if
           (then 
             ;; if check_signature succeeded, return true
-            i31.const 1
+            i32.const 1
             return
           )
           (else
@@ -40,7 +46,7 @@
             ;; primage reveal as the proof 
 
             ;; check_preimage("/hash")
-            i32.const 7
+            i32.const 15
             i32.const 5
             call $check_preimage
 
@@ -49,8 +55,9 @@
           )
         )
       )
+    )
 
-    ;; check_version failed so return false
+    ;; return false
     i32.const 0
     return
   )
@@ -61,6 +68,7 @@
   ;; String constants for referenceing key-value pairs
   ;;
   ;;                    [NAME]            [IDX] [LEN]
-  (data (i32.const  0)  "/pubkey" )   ;;    0     7
-  (data (i32.const 13)  "/hash"    )  ;;    7     5
+  (data (i32.const  0)  "/tpubkey" )   ;;    0     8
+  (data (i32.const  8)  "/pubkey"  )   ;;    8     7
+  (data (i32.const 15)  "/hash"    )   ;;   15     5
 )
