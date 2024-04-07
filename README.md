@@ -1,6 +1,8 @@
-[![Functional Source License 1.1](https://img.shields.io/badge/License-Functional_Source_1.1-red)][FSL]
-![Rust Building](https://github.com/cryptidtech/provenance-log/actions/workflows/rust.yml/badge.svg)
-
+[![](https://img.shields.io/badge/made%20by-Cryptid%20Technologies-gold.svg?style=flat-square)][CRYPTID]
+[![](https://img.shields.io/badge/project-provenance-purple.svg?style=flat-square)][PROVENANCE]
+[![](https://img.shields.io/badge/project-multiformats-blue.svg?style=flat-square)][MULTIFORMATS]
+[![](https://img.shields.io/badge/License-Functional_Source_1.1-red)][FSL]
+![](https://github.com/cryptidtech/provenance-log/actions/workflows/rust.yml/badge.svg)
 
 # Cryptographic Provenance Log (plog)
 
@@ -774,6 +776,9 @@ for governing its key-value store. The data recorded under the
 scripts in the child to validate the second entry in the child provenance log
 which can then remove the `"/forks/child1/"` branch if so desired.
 
+[CRYPTID]: https://cryptid.tech/
+[PROVENANCE]: https://github.com/cryptidtech/provenance-specifications/
+[MULTIFORMATS]: https://github.com/multiformats/multiformats/
 [FSL]: https://github.com/cryptidtech/provenance-log/blob/main/LICENSE.md
 [WACC]: https://github.com/cryptidtech/wacc.git
 [MULTIKEY]: https://github.com/cryptidtech/multikey.git
