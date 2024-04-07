@@ -43,6 +43,52 @@ impl Key {
             }
         }
     }
+
+    /// returns the branch part of the key
+    pub fn branch(&self) -> Self {
+        if self.is_branch() || self.len() == 0 {
+            self.clone()
+        } else {
+            let mut p = self.parts.clone();
+            let _ = p.pop();
+            p.push("".to_string());
+            Self {
+                parts: p
+            }
+        }
+    }
+
+    /// returns the minimum common branch between this and the other Key
+    pub fn min_branch(&self, rhs: &Key) -> Self {
+        let lhs = self.branch();
+        let rhs = rhs.branch();
+        let mut v = Vec::default();
+        let mut itr = lhs.parts.iter().zip(rhs.parts.iter());
+        while let Some((l, r)) = itr.next() {
+            if l == r {
+                v.push(l.clone());
+            } else {
+                break;
+            }
+        }
+
+        match v.len() {
+            0 => {
+                v.push("".to_string());
+                v.push("".to_string());
+            }
+            1 => {
+                v.push("".to_string());
+            }
+            _ => {
+                if v.last() != Some(&"".to_string()) {
+                    v.push("".to_string());
+                }
+            }
+        }
+
+        Self { parts: v }
+    }
 }
 
 impl Default for Key {
@@ -178,7 +224,9 @@ mod tests {
         assert!(k.is_branch());
         assert!(!k.is_leaf());
         assert_eq!(3, k.len());
-        assert_eq!(format!("{}", k), "/foo/bar/baz/".to_string())
+        assert_eq!(format!("{}", k), "/foo/bar/baz/".to_string());
+        assert_eq!(format!("{}", k.branch()), "/foo/bar/baz/".to_string());
+        assert_eq!(3, k.branch().len());
     }
 
     #[test]
@@ -187,6 +235,58 @@ mod tests {
         assert!(!k.is_branch());
         assert!(k.is_leaf());
         assert_eq!(3, k.len());
-        assert_eq!(format!("{}", k), "/foo/bar/baz".to_string())
+        assert_eq!(format!("{}", k), "/foo/bar/baz".to_string());
+        assert_eq!(format!("{}", k.branch()), "/foo/bar/".to_string());
+        assert_eq!(2, k.branch().len());
+    }
+
+    #[test]
+    fn min_branch_one() {
+        let l = Key::try_from("/foo/bar/baz").unwrap();
+        let r = Key::try_from("/foo/bar").unwrap();
+        let mk = l.min_branch(&r);
+        assert!(mk.is_branch());
+        assert_eq!(1, mk.len());
+        assert_eq!(format!("{}", mk), "/foo/".to_string());
+    }
+
+    #[test]
+    fn min_branch_two() {
+        let l = Key::try_from("/foo/bar/baz").unwrap();
+        let r = Key::try_from("/blah/boo").unwrap();
+        let mk = l.min_branch(&r);
+        assert!(mk.is_branch());
+        assert_eq!(0, mk.len());
+        assert_eq!(format!("{}", mk), "/".to_string());
+    }
+
+    #[test]
+    fn min_branch_three() {
+        let l = Key::try_from("/").unwrap();
+        let r = Key::try_from("/blah/boo").unwrap();
+        let mk = l.min_branch(&r);
+        assert!(mk.is_branch());
+        assert_eq!(0, mk.len());
+        assert_eq!(format!("{}", mk), "/".to_string());
+    }
+
+    #[test]
+    fn min_branch_four() {
+        let l = Key::try_from("/").unwrap();
+        let r = Key::try_from("/").unwrap();
+        let mk = l.min_branch(&r);
+        assert!(mk.is_branch());
+        assert_eq!(0, mk.len());
+        assert_eq!(format!("{}", mk), "/".to_string());
+    }
+
+    #[test]
+    fn min_branch_five() {
+        let l = Key::try_from("/foo/bar/baz/blah/").unwrap();
+        let r = Key::try_from("/foo/bar/baz/blah/").unwrap();
+        let mk = l.min_branch(&r);
+        assert!(mk.is_branch());
+        assert_eq!(4, mk.len());
+        assert_eq!(format!("{}", mk), "/foo/bar/baz/blah/".to_string());
     }
 }

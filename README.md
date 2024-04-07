@@ -200,7 +200,7 @@ proposed entry like so:
      └─ "proof"
 ```
 
-An example unlock script for satisfying a `check_segnature` lock script looks
+An example unlock script for satisfying a `check_signature` lock script looks
 like:
 
 ```rust

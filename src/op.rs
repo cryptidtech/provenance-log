@@ -116,6 +116,17 @@ pub enum Op {
     Update(Key, Value),
 }
 
+impl Op {
+    /// get the key in the op 
+    pub fn key(&self) -> Key {
+        match self {
+            Self::Noop(k) => k.clone(),
+            Self::Delete(k) => k.clone(),
+            Self::Update(k, _) => k.clone()
+        }
+    }
+}
+
 impl Default for Op {
     fn default() -> Self {
         Op::Noop(Key::default())

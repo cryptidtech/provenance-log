@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{entry, error::LogError, Entry, Error, Key, Kvp, Script, Stk};
+use crate::{entry, error::LogError, Entry, Error, Kvp, Script, Stk};
 use core::fmt;
 use multibase::Base;
 use multicid::{Cid, Vlad};
@@ -234,7 +234,7 @@ impl Log {
                     rstack: &mut rstack,
                     check_count: 0,
                     write_idx: 0,
-                    context: Key::default().to_string(),
+                    context: entry.context().to_string(),
                     log: Vec::default(),
                     limiter: StoreLimitsBuilder::new()
                         .memory_size(1 << 16)
@@ -276,7 +276,7 @@ impl Log {
                     rstack: &mut rstack,
                     check_count: 0,
                     write_idx: 0,
-                    context: Key::default().to_string(),
+                    context: entry.context().to_string(),
                     log: Vec::default(),
                     limiter: StoreLimitsBuilder::new()
                         .memory_size(1 << 16)

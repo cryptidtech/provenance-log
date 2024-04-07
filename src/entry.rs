@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::EntryError, Error, Lipmaa, Op, Script};
+use crate::{error::EntryError, Error, Key, Lipmaa, Op, Script};
 use core::fmt;
 use multibase::Base;
 use multicid::{cid, Cid, EncodedCid, Vlad};
@@ -281,6 +281,22 @@ impl Entry {
             .try_build()
             .unwrap()
     }
+
+    /// get the longest common branch context from the ops
+    pub fn context(&self) -> Key {
+        if self.ops.len() == 0 {
+            Key::default()
+        } else {
+            // get the first branch
+            let mut ctx = self.ops.first().unwrap().clone().key().branch();
+
+            // got through the rest looking for the shortest one
+            for k in self.ops.iter() {
+                ctx = k.key().branch().min_branch(&ctx);
+            }
+            ctx
+        }
+    }
 }
 
 /// Builder for Entry objects
@@ -433,6 +449,7 @@ mod tests {
         for op in entry.ops() {
             assert_eq!(Op::default(), op.clone());
         }
+        assert_eq!(format!("{}", entry.context()), "/".to_string());
     }
 
     #[test]
@@ -483,6 +500,7 @@ mod tests {
             );
         }
         assert_eq!(entry.proof, hex::decode("073b20d15c4fb2911ae1337f102bcaf4c0088d36345b88b243968e834c5ffa17907832017114405792dad96085b6076b8e4e63b578c90d0336bcaadef4f24704df866149526a1e6d23f89e218ad3f6172a7e26e6e37a3dea728e5f232e41696ad286bcca9201be").unwrap());
+        assert_eq!(format!("{}", entry.context()), "/".to_string());
     }
 }
 
