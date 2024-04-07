@@ -1,4 +1,6 @@
 [![Functional Source License 1.1](https://img.shields.io/badge/License-Functional_Source_1.1-red)][FSL]
+![Rust Building](https://github.com/cryptidtech/provenance-log/actions/workflows/rust.yml/badge.svg)
+
 
 # Cryptographic Provenance Log (plog)
 
