@@ -41,7 +41,7 @@ impl Into<u8> for OpId {
 impl From<&Op> for OpId {
     fn from(op: &Op) -> Self {
         match op {
-            Op::Noop => Self::Noop,
+            Op::Noop(_) => Self::Noop,
             Op::Delete(_) => Self::Delete,
             Op::Update(_, _) => Self::Update,
         }
@@ -106,15 +106,20 @@ impl fmt::Debug for OpId {
 }
 
 /// the operations performed on the namespace in each entry
-#[derive(Clone, Default, Eq, Hash, Ord, PartialOrd, PartialEq)]
+#[derive(Clone, Eq, Hash, Ord, PartialOrd, PartialEq)]
 pub enum Op {
     /// no operation
-    #[default]
-    Noop,
+    Noop(Key),
     /// delete the value associated with the key
     Delete(Key),
     /// update/create the key value pair
     Update(Key, Value),
+}
+
+impl Default for Op {
+    fn default() -> Self {
+        Op::Noop(Key::default())
+    }
 }
 
 impl Into<Vec<u8>> for Op {
@@ -123,7 +128,11 @@ impl Into<Vec<u8>> for Op {
         // add in the operation
         v.append(&mut OpId::from(&self).into());
         match self {
-            Self::Noop => v,
+            Self::Noop(key) => {
+                // add in the key string
+                v.append(&mut key.clone().into());
+                v
+            }
             Self::Delete(key) => {
                 // add in the key string
                 v.append(&mut key.clone().into());
@@ -156,7 +165,10 @@ impl<'a> TryDecodeFrom<'a> for Op {
         // decode the operation id
         let (id, ptr) = OpId::try_decode_from(bytes)?;
         let (v, ptr) = match id {
-            OpId::Noop => (Self::Noop, ptr),
+            OpId::Noop => {
+                let (key, ptr) = Key::try_decode_from(ptr)?;
+                (Self::Noop(key), ptr)
+            }
             OpId::Delete => {
                 let (key, ptr) = Key::try_decode_from(ptr)?;
                 (Self::Delete(key), ptr)
@@ -175,7 +187,7 @@ impl fmt::Debug for Op {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let id = OpId::from(self);
         match self {
-            Self::Noop => write!(f, "{:?}", id),
+            Self::Noop(key) => write!(f, "{:?} - {}", id, key),
             Self::Delete(key) => write!(f, "{:?} - {}", id, key),
             Self::Update(key, value) => write!(f, "{:?} - {} => {:?}", id, key, value),
         }

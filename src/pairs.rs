@@ -128,7 +128,7 @@ impl<'a> Kvp<'a> {
                 Op::Delete(k) => {
                     self.kvp.remove(k);
                 }
-                Op::Noop => {}
+                Op::Noop(_) => {}
             }
         }
 
@@ -170,12 +170,16 @@ mod tests {
                 "/one".try_into().unwrap(),
                 Value::Str("foo".to_string()),
             ))
-            .add_op(&Op::Noop)
+            .add_op(&Op::Noop(
+                "/foo".try_into().unwrap(),
+            ))
             .add_op(&Op::Update(
                 "/two".try_into().unwrap(),
                 Value::Str("bar".to_string()),
             ))
-            .add_op(&Op::Noop)
+            .add_op(&Op::Noop(
+                "/bar".try_into().unwrap(),
+            ))
             .add_op(&Op::Update(
                 "/three".try_into().unwrap(),
                 Value::Str("baz".to_string()),

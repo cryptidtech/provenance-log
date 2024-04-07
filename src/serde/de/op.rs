@@ -39,6 +39,26 @@ impl<'de> Deserialize<'de> for Op {
             Update,
         }
 
+        struct NoopVisitor;
+
+        impl<'de> Visitor<'de> for NoopVisitor {
+            type Value = Op;
+
+            fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                write!(fmt, "enum Op::Noop(key)")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+                let key = seq
+                    .next_element()?
+                    .ok_or_else(|| Error::missing_field("key"))?;
+                Ok(Op::Noop(key))
+            }
+        }
+
         struct DeleteVisitor;
 
         impl<'de> Visitor<'de> for DeleteVisitor {
@@ -96,10 +116,7 @@ impl<'de> Deserialize<'de> for Op {
                 V: EnumAccess<'de>,
             {
                 match e.variant()? {
-                    (Variant::Noop, v) => {
-                        v.unit_variant()?;
-                        Ok(Op::Noop)
-                    }
+                    (Variant::Noop, v) => Ok(v.tuple_variant(1, NoopVisitor)?),
                     (Variant::Delete, v) => Ok(v.tuple_variant(1, DeleteVisitor)?),
                     (Variant::Update, v) => Ok(v.tuple_variant(2, UpdateVisitor)?),
                 }
@@ -111,7 +128,9 @@ impl<'de> Deserialize<'de> for Op {
         } else {
             let (id, key, value): (OpId, Key, Value) = Deserialize::deserialize(deserializer)?;
             match id {
-                OpId::Noop => Ok(Op::Noop),
+                OpId::Noop => {
+                    Ok(Op::Noop(key))
+                }
                 OpId::Delete => {
                     Ok(Op::Delete(key))
                 }

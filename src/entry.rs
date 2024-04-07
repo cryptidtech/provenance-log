@@ -415,7 +415,7 @@ mod tests {
     fn test_builder() {
         let vlad = Vlad::default();
         let script = Script::default();
-        let op = Op::Noop;
+        let op = Op::default();
         let entry = Builder::default()
             .with_vlad(&vlad)
             .with_lock(&script)
@@ -431,7 +431,7 @@ mod tests {
 
         assert_eq!(entry.seqno(), 0);
         for op in entry.ops() {
-            assert_eq!(Op::Noop, op.clone());
+            assert_eq!(Op::default(), op.clone());
         }
     }
 

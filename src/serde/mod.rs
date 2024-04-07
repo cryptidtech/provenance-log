@@ -123,10 +123,11 @@ mod tests {
         let o = Op::default();
         assert_tokens(
             &o.readable(),
-            &[Token::UnitVariant {
-                name: "op",
-                variant: "noop",
-            }],
+            &[
+                Token::TupleVariant { name: "op", variant: "noop", len: 1 },
+                Token::BorrowedStr("/"),
+                Token::TupleVariantEnd,
+            ],
         );
     }
 
@@ -134,7 +135,7 @@ mod tests {
     fn test_op_default_json() {
         let o = Op::default();
         let s = serde_json::to_string(&o).unwrap();
-        assert_eq!(s, "\"noop\"".to_string());
+        assert_eq!(s, "{\"noop\":[\"/\"]}".to_string());
         assert_eq!(o, serde_json::from_str(&s).unwrap());
     }
 

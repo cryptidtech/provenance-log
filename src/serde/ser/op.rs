@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Op, OpId, Key, Value};
+use crate::{Op, OpId, Value};
 use multiutil::Varbytes;
 use serde::ser::{self, SerializeTupleVariant};
 
@@ -25,11 +25,16 @@ impl ser::Serialize for Op {
     {
         if serializer.is_human_readable() {
             match self {
-                Self::Noop => serializer.serialize_unit_variant(
-                    "op",
-                    OpId::Noop.code() as u32,
-                    OpId::Noop.as_str(),
-                ),
+                Self::Noop(key) => {
+                    let mut ss = serializer.serialize_tuple_variant(
+                        "op",
+                        OpId::Noop.code() as u32,
+                        OpId::Noop.as_str(),
+                        1,
+                    )?;
+                    ss.serialize_field(&key)?;
+                    ss.end()
+                }
                 Self::Delete(key) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "op",
@@ -56,8 +61,8 @@ impl ser::Serialize for Op {
             // regardless of the enum variant, we serialize a tuple of
             // (OpId, Varbytes, Value) and a Value serializes as a (ValueId, Varbytes)
             match self {
-                Self::Noop => {
-                    (OpId::from(self), Key::default(), Value::default()).serialize(serializer)
+                Self::Noop(key) => {
+                    (OpId::from(self), key, Value::default()).serialize(serializer)
                 }
                 Self::Delete(key) => {
                     (OpId::from(self), key, Value::default()).serialize(serializer)
