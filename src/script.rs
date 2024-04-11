@@ -213,7 +213,7 @@ impl fmt::Debug for Script {
         let id = ScriptId::from(self);
         match self {
             Self::Bin(b) => write!(f, "{:?} - {:?}", id, Varbytes(b.clone())),
-            Self::Code(s) => write!(f, "{:?} - {}", id, s),
+            Self::Code(s) => write!(f, "{:?} -\n{}", id, s),
             Self::Cid(c) => write!(f, "{:?} - {:?}", id, c),
         }
     }

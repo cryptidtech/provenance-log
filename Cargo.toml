@@ -1,6 +1,6 @@
 [package]
 name = "provenance-log"
-version = "0.1.14"
+version = "0.1.15"
 authors = ["Dave Grantham <dwg@linuxprogrammer.org>"]
 edition = "2021"
 description = "Programmable cryptographic provenance logs"
