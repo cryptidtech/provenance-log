@@ -191,9 +191,9 @@ the key-value store has the following keys populated with the data from the
 proposed entry like so:
 
 ```
-"/"
- └── "entry/"
-     ├─ "version"
+─┬─"/"
+ ╰─┬─ "entry/"
+   ╰─┬─ "version"
      ├─ "vlad"
      ├─ "prev"
      ├─ "lipmaa"
@@ -201,7 +201,7 @@ proposed entry like so:
      ├─ "ops"
      ├─ "locks"
      ├─ "unlock"
-     └─ "proof"
+     ╰─ "proof"
 ```
 
 An example unlock script for satisfying a `check_signature` lock script looks
@@ -220,7 +220,7 @@ pub fn for_great_justice() {
 
 or in web assembly text:
 
-```wast
+```wat
 (module
   ;; the imported _check_signature function
   (import "wacc" "_push" (func $push (param i32 i32) (result i32)))
@@ -308,7 +308,7 @@ As an example let us assume the proposed event has the following `op` entries:
 ]
 ```
 
-The "context" key-path is the longest common **branch** key-path in the set of
+The "context" key-path is the longest common *branch* key-path in the set of
 `op` key-paths. In the example above, the longest common branch key-path is
 `"/forks/001/"` so in any lock script that runs to validate this entry, the
 `branch` function would concatenate `"/forks/001/"` with the key-path passed
@@ -341,17 +341,17 @@ Here is an another example to clarify which lock scripts get executed and in
 which order. Assume you have a key-path structure like the following:
 
 ```
-"/"
- ├─ "tpubkey"
- ├─ "pubkey"
- ├─ "hash"
- └─ "delegated/"
-     ├─ "mike/"
-     │   └─ "endpoint"
-     ├─ "walker/"
-     │   └─ "peerid"
-     └─ "dave/"
-         └─ "endpoint"
+─┬─ "/"
+ ╰─┬─ "tpubkey"
+   ├─ "pubkey"
+   ├─ "hash"
+   ├─ "delegated/"
+   ╰─┬─┬─ "mike/"
+     │ ╰─── "endpoint"
+     ├─┬─ "walker/"
+     │ ╰─── "peerid"
+     ╰─┬─  "dave/"
+       ╰─── "endpoint"
 ```
 
 And also assume the current entry has the following list of lock scripts
@@ -394,8 +394,8 @@ Assume that applying the mutation ops from foot (i.e. first event) to head
 (i.e. most recent) creates the following key-value store state:
 
 ```
-"/"
- └─ "pubkey"
+─┬─ "/"
+ ╰─── "pubkey"
 ```
 
 A lock script may reference the value of the public key like so:
@@ -410,7 +410,7 @@ pub fn move_every_zig() -> bool {
 
 or in web assembly text:
 
-```wast
+```wat
 (module
   ;; the imported _check_signature function
   (import "wacc" "_check_signature" (func $check_signature (param i32 i32) (result i32)))
@@ -473,7 +473,7 @@ signature or pubkey signature or preimage proof.
 
 ```rust
 #[no_mangle]
-pub fn lock() -> bool {
+pub fn move_every_zig() -> bool {
     // then check a possible threshold sig...
     check_signature("/tpubkey") ||   // check_count++
     // then check a possible pubkey sig...
@@ -523,17 +523,18 @@ entries, giving a hierarchy of who can override whom when updating a plog.
 In the example from above, let us assume we have the following:
 
 ```
-"/"
- ├─ "tpubkey"
- ├─ "pubkey"
- ├─ "hash"
- └─ "delegated/"
-     ├─ "mike/"
-     │   ├─ "pubkey"
-     │   └─ "endpoint"
-     └─ "walker/"
-         ├─ "pubkey"
-         └─ "peerid"
+─┬─ "/"
+ ╰─┬─ "tpubkey"
+   ├─ "pubkey"
+   ├─ "hash"
+   ├─ "delegated/"
+   ╰─┬─┬─ "mike/"
+     │ ├─── "pubkey"
+     │ ╰─── "endpoint"
+     ╰─┬─ "walker/"
+       ├─── "pubkey"
+       ╰─── "peerid"
+
 ```
 
 And also assume the current entry has the following list of lock scripts
@@ -580,13 +581,6 @@ digitally sign it with the key pair associated with the public key stored under
 `"/delegate/walker/pubkey"` and the same `"/delegated/"` lock script works for
 him because the context branch for validating his event is
 `"/delegated/walker/"`.
-
-SNIP
-This is especially handy for delegating the capability to fork the provenance
-log into child logs. By creating a similar lock script that is attached to
-`"/forks/"`, as long as any update adding a leaf to `"/forks/"` is signed with
-the `"/forks/pubkey"` key pair, it is valid. 
-SNIP
 
 #### Forced recovery using precedence
 
@@ -659,23 +653,24 @@ key-path:
 ```rust
 #[no_mangle]
 pub fn move_every_zig() -> bool {
-    // delegate making changes to /forks/ to whomever can sign with /forks/pubkey
+    // forking the parent be done by whomever can sign with "/forks/pubkey"
     check_signature(branch("pubkey")) ||
 
     // check the validity of the first entry of the child plog 
-    (check_eq(branch("vlad")) && check_signature("pubkey")))
+    (check_eq(branch("vlad")) && check_signature(branch("pubkey")))
 }
 ```
 
 The proces of forking a provenance log takes two steps. The first step is
 recording the information about the child plog in the parent plog and the
 second step is publishing the child plog. By convention, each child plog's
-information is stored under its own branch under `"/forks/"`. The child's 
+information is stored under its own branch under `"/forks/"`. The child's
 branch name is arbitrary but, again by convention, under its branch there is a
 `"vlad"` leaf with the child's VLAD, a `"pubkey"` leaf with the child's first
-advertised pubkey that was also used to sign its first entry.
+advertised pubkey that was also used to sign its first entry and the CID in its
+VLAD.
 
-So, creating a child plog fork, we create a new entry in the parent plog with
+When creating a child plog fork, we create a new entry in the parent plog with
 the following mutation `op` values:
 
 ```json
@@ -688,8 +683,9 @@ the following mutation `op` values:
 
 This new entry is signed using the key pair associated with `"/forks/pubkey"`.
 The `noop` mutation is used to set the context key-path to `"/forks/"` by
-including it the `op` mutation set of key-paths. It is the shortest common
-key-path and thus becomes the context key-path for the `branch` function.
+including it the `op` mutation set of key-paths. It is the longest common
+key-path and thus becomes the context key-path for the `branch` function when
+running it to validate the new event in the parent plog.
 
 When the lock script associated with `"/forks/"` executes, the first
 `check_signature` call passes and the lock script exits with `SUCCESS(0)` on
@@ -713,9 +709,10 @@ forking lock script execution but allows for the child plog to have its own
 lock scripts and validate the next entry in the log. The only rule is that the
 child's initial entry can only have `op` mutations under the `"/forks/child1/"`
 key-path to ensure that the lock script from the parent executes correctly and
-validates the child's first entry.
+validates the child's first entry. 
 
-The unlock script of the first entry in the child plog must be like the following:
+The unlock script of the first entry in the child plog must be like the
+following:
 
 ```rust
 #[no_mangle]
@@ -723,7 +720,7 @@ pub fn unlock() {
     // push the entry values
     push("/entry/");
 
-    // push the signature created using the ephemeral1 key pair
+    // push the signature created using the /forks/child1/pubkey keypair
     push("/entry/proof");
 
     // push the vlad
