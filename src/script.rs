@@ -5,7 +5,7 @@ use multibase::Base;
 use multicid::Cid;
 use multitrait::{EncodeInto, TryDecodeFrom};
 use multiutil::{EncodingInfo, Varbytes};
-use std::path::PathBuf;
+use std::{cmp::Ordering, path::PathBuf};
 
 /// the identifiers for the operations performed on the namespace in each entry
 #[repr(u8)]
@@ -129,6 +129,20 @@ impl Script {
             Self::Code(p, _) => p.clone(),
             Self::Cid(p, _) => p.clone(),
         }
+    }
+}
+
+impl Ord for Script {
+    /// orders scripts by their paths
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.path().cmp(&other.path())
+    }
+}
+
+impl PartialOrd for Script {
+    /// partial ord for script 
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.path().partial_cmp(&other.path())
     }
 }
 
@@ -300,6 +314,26 @@ impl Builder {
             Ok(Script::Cid(path, cid.clone()))
         } else {
             Err(ScriptError::BuildFailed.into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sort_scripts() {
+        let cid = Cid::default();
+        let mut v: Vec<Script> = vec![
+            Builder::from_code_cid(&cid).with_path(&Key::try_from("/bar/").unwrap()).try_build().unwrap(),
+            Builder::from_code_cid(&cid).with_path(&Key::default()).try_build().unwrap(),
+            Builder::from_code_cid(&cid).with_path(&Key::try_from("/bar/").unwrap()).try_build().unwrap(),
+            Builder::from_code_cid(&cid).with_path(&Key::try_from("/foo").unwrap()).try_build().unwrap(),
+        ];
+        v.sort();
+        for s in v {
+            println!("{}: {:?}", s.path(), s);
         }
     }
 }

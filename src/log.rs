@@ -210,7 +210,7 @@ impl Log {
         let mut seqno: Option<u64> = None;
         // the lock scripts in execution order
         // NOTE: this needs to preserve the key-path associated with the first lock
-        let mut locks = vec![self.first_lock.clone()];
+        let mut lock_scripts = vec![self.first_lock.clone()];
         for entry in self.iter() {
             let mut pstack = Stk::default();
             let mut rstack = Stk::default();
@@ -272,6 +272,7 @@ impl Log {
 
             // 'lock:
             let mut result = false;
+            let locks = entry.sort_locks(&lock_scripts);
             for lock in locks {
                 let lock_ctx = vm::Context {
                     pairs: &kvp,
@@ -310,7 +311,7 @@ impl Log {
                     kvp.apply_entry_ops(entry)?;
                 }
                 // update the lock script to validate the next entry
-                locks = entry.locks.clone();
+                lock_scripts = entry.locks.clone();
             } else {
                 return Err(LogError::VerifyFailed(format!("unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}", rstack, pstack)).into());
             }

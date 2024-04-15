@@ -320,6 +320,14 @@ impl Entry {
             ctx
         }
     }
+
+    /// go through the lock script from the previous entry and sort them in order of execution for
+    /// validating this Entry
+    pub fn sort_locks(&self, locks: &Vec<Script>) -> Vec<Script> {
+        let mut locks = locks.clone();
+        locks.sort();
+        locks
+    }
 }
 
 /// Builder for Entry objects

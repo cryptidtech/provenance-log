@@ -289,4 +289,18 @@ mod tests {
         assert_eq!(4, mk.len());
         assert_eq!(format!("{}", mk), "/foo/bar/baz/blah/".to_string());
     }
+
+    #[test]
+    fn sort_keys() {
+        let mut v: Vec<Key> = vec![
+            Key::try_from("/bar/").unwrap(),
+            Key::try_from("/").unwrap(),
+            Key::try_from("/bar/").unwrap(),
+            Key::try_from("/foo").unwrap(),
+        ];
+        v.sort();
+        for k in v {
+            println!("{}", k);
+        }
+    }
 }
