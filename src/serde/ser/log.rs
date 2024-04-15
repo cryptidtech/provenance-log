@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{log::SIGIL, Entry, Log};
-use multicid::Cid;
+use crate::{log::SIGIL, Log};
 use serde::ser::{self, SerializeStruct};
 
 /// Serialize instance of [`crate::Log`]
@@ -17,22 +16,8 @@ impl ser::Serialize for Log {
             ss.serialize_field("head", &self.head)?;
             ss.end()
         } else {
-            let entries: Vec<(Cid, Entry)> = self
-                .entries
-                .iter()
-                .map(|(cid, entry)| (cid.clone(), entry.clone()))
-                .collect();
-
-            (
-                SIGIL,
-                self.version,
-                self.vlad.clone(),
-                self.first_lock.clone(),
-                self.foot.clone(),
-                self.head.clone(),
-                entries,
-            )
-                .serialize(serializer)
+            let v: Vec<u8> = self.clone().into();
+            serializer.serialize_bytes(v.as_slice())
         }
     }
 }

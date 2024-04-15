@@ -25,49 +25,43 @@ impl ser::Serialize for Script {
     {
         if serializer.is_human_readable() {
             match self {
-                Self::Bin(b) => {
+                Self::Bin(p, b) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "script",
                         ScriptId::Bin.code() as u32,
                         ScriptId::Bin.as_str(),
-                        1,
+                        2,
                     )?;
+                    ss.serialize_field(&p)?;
                     ss.serialize_field(&Varbytes::encoded_new(self.encoding(), b.clone()))?;
                     ss.end()
                 }
-                Self::Code(s) => {
+                Self::Code(p, s) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "script",
                         ScriptId::Code.code() as u32,
                         ScriptId::Code.as_str(),
-                        1,
+                        2,
                     )?;
+                    ss.serialize_field(&p)?;
                     ss.serialize_field(&s)?;
                     ss.end()
                 }
-                Self::Cid(cid) => {
+                Self::Cid(p, cid) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "script",
                         ScriptId::Cid.code() as u32,
                         ScriptId::Cid.as_str(),
-                        1,
+                        2,
                     )?;
+                    ss.serialize_field(&p)?;
                     ss.serialize_field(&cid)?;
                     ss.end()
                 }
             }
         } else {
-            // regardless of the enum variant, we serialize scripts as a tuple
-            // consisting of (ScriptId, Varbytes)
-            match self {
-                Self::Bin(b) => (ScriptId::from(self), Varbytes(b.clone())).serialize(serializer),
-                Self::Code(s) => {
-                    (ScriptId::from(self), Varbytes(s.as_bytes().to_vec())).serialize(serializer)
-                }
-                Self::Cid(cid) => {
-                    (ScriptId::from(self), Varbytes(cid.clone().into())).serialize(serializer)
-                }
-            }
+            let v: Vec<u8> = self.clone().into();
+            serializer.serialize_bytes(v.as_slice())
         }
     }
 }

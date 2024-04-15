@@ -34,8 +34,8 @@ pub struct Entry {
     pub(crate) seqno: u64,
     /// operations on the namespace in this entry
     pub(crate) ops: Vec<Op>,
-    /// the script locking the next entry
-    pub(crate) lock: Script,
+    /// the lock scripts associated with keys
+    pub(crate) locks: Vec<Script>,
     /// the script that unlocks this entry, must include all fields except itself
     pub(crate) unlock: Script,
     /// the proof that this entry is valid, this can be a digital signature of
@@ -108,7 +108,8 @@ impl wacc::Pairs for Entry {
                     .for_each(|op| v.append(&mut op.clone().into()));
                 Some(wacc::Value::Bin(v))
             }
-            "/entry/lock" => Some(wacc::Value::Bin(self.lock.clone().into())),
+            // TODO: make this accessible via an iterator
+            //"/entry/locks" => Some(wacc::Value::Bin(self.locks.clone().into())),
             "/entry/unlock" => Some(wacc::Value::Bin(self.unlock.clone().into())),
             "/entry/proof" => Some(wacc::Value::Bin(self.proof.clone())),
             _ => None,
@@ -142,8 +143,12 @@ impl Into<Vec<u8>> for Entry {
         self.ops
             .iter()
             .for_each(|op| v.append(&mut op.clone().into()));
-        // add in the lock script
-        v.append(&mut self.lock.clone().into());
+        // first add the number of keys
+        v.append(&mut Varuint(self.locks.len()).into());
+        // add in the locks
+        self.locks
+            .iter()
+            .for_each(|script| v.append(&mut script.clone().into()));
         // add in the unlock script
         v.append(&mut self.unlock.clone().into());
         // add in the proof
@@ -201,8 +206,22 @@ impl<'a> TryDecodeFrom<'a> for Entry {
                 (ops, p)
             }
         };
-        // decode the lock script
-        let (lock, ptr) = Script::try_decode_from(ptr)?;
+        // decode the number of lock scripts
+        let (num_locks, ptr) = Varuint::<usize>::try_decode_from(ptr)?;
+        // decode the ops
+        let (locks, ptr) = match *num_locks {
+            0 => (Vec::default(), ptr),
+            _ => {
+                let mut locks = Vec::with_capacity(*num_locks);
+                let mut p = ptr;
+                for _ in 0..*num_locks {
+                    let (lock, ptr) = Script::try_decode_from(p)?;
+                    locks.push(lock);
+                    p = ptr;
+                }
+                (locks, p)
+            }
+        };
         // decode the unlock script
         let (unlock, ptr) = Script::try_decode_from(ptr)?;
         // decode the proof
@@ -217,7 +236,7 @@ impl<'a> TryDecodeFrom<'a> for Entry {
                 lipmaa,
                 seqno,
                 ops,
-                lock,
+                locks,
                 unlock,
                 proof,
             },
@@ -241,10 +260,9 @@ impl fmt::Debug for Entry {
 
 impl Default for Entry {
     fn default() -> Self {
-        Builder::new()
+        Builder::default()
             .with_vlad(&Vlad::default())
             .with_seqno(0)
-            .with_lock(&Script::default())
             .with_unlock(&Script::default())
             .try_build(|_| Ok(()))
             .unwrap()
@@ -265,6 +283,11 @@ impl Entry {
     /// get an iterator over the operations in the entry
     pub fn ops(&self) -> impl Iterator<Item = &Op> {
         self.ops.iter()
+    }
+
+    /// get an iterator over the lock scripts 
+    pub fn locks(&self) -> impl Iterator<Item = &Script> {
+        self.locks.iter()
     }
 
     /// get the cid of this entry
@@ -292,7 +315,7 @@ impl Entry {
 
             // got through the rest looking for the shortest one
             for k in self.ops.iter() {
-                ctx = k.key().branch().min_branch(&ctx);
+                ctx = k.key().branch().longest_common_branch(&ctx);
             }
             ctx
         }
@@ -300,27 +323,34 @@ impl Entry {
 }
 
 /// Builder for Entry objects
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Builder {
     version: u64,
     vlad: Option<Vlad>,
     prev: Option<Cid>,
     lipmaa: Option<Cid>,
     seqno: Option<u64>,
-    ops: Option<Vec<Op>>,
-    lock: Option<Script>,
+    ops: Vec<Op>,
+    locks: Vec<Script>,
     unlock: Option<Script>,
 }
 
-impl Builder {
-    /// build new with version
-    pub fn new() -> Self {
+impl Default for Builder {
+    fn default() -> Self {
         Self {
             version: ENTRY_VERSION,
-            ..Default::default()
+            vlad: None,
+            prev: None,
+            lipmaa: None,
+            seqno: None,
+            ops: Vec::default(),
+            locks: Vec::default(),
+            unlock: None,
         }
     }
+}
 
+impl Builder {
     /// Set the Vlad
     pub fn with_vlad(mut self, vlad: &Vlad) -> Self {
         self.vlad = Some(vlad.clone());
@@ -347,30 +377,25 @@ impl Builder {
 
     /// Set the ops
     pub fn with_ops(mut self, ops: &Vec<Op>) -> Self {
-        self.ops = Some(ops.clone());
+        self.ops = ops.clone();
         self
     }
 
     /// Add an op
     pub fn add_op(mut self, op: &Op) -> Self {
-        let ops = match self.ops {
-            Some(mut ops) => {
-                ops.push(op.clone());
-                ops
-            }
-            None => {
-                let mut ops = Vec::default();
-                ops.push(op.clone());
-                ops
-            }
-        };
-        self.ops = Some(ops);
+        self.ops.push(op.clone());
+        self
+    }
+
+    /// Set the lock scripts
+    pub fn with_locks(mut self, locks: &Vec<Script>) -> Self {
+        self.locks = locks.clone();
         self
     }
 
     /// Set the lock script
-    pub fn with_lock(mut self, lock: &Script) -> Self {
-        self.lock = Some(lock.clone());
+    pub fn add_lock(mut self, script: &Script) -> Self {
+        self.locks.push(script.clone());
         self
     }
 
@@ -395,8 +420,6 @@ impl Builder {
         } else {
             Cid::null()
         };
-        let ops = self.ops.clone().unwrap_or_default();
-        let lock = self.lock.clone().ok_or(EntryError::MissingLockScript)?;
         let unlock = self.unlock.clone().ok_or(EntryError::MissingUnlockScript)?;
 
         // first construct an entry with every field except the proof
@@ -406,8 +429,8 @@ impl Builder {
             prev,
             seqno,
             lipmaa,
-            ops,
-            lock,
+            ops: self.ops.clone(),
+            locks: self.locks.clone(),
             unlock,
             proof: Vec::default(),
         };
@@ -423,8 +446,7 @@ impl Builder {
 mod tests {
     use super::*;
     use crate::Value;
-    use multicid::{cid, vlad};
-    use multihash::mh;
+    use multicid::vlad;
     use multikey::nonce;
 
     #[test]
@@ -434,7 +456,6 @@ mod tests {
         let op = Op::default();
         let entry = Builder::default()
             .with_vlad(&vlad)
-            .with_lock(&script)
             .with_unlock(&script)
             .add_op(&op)
             .add_op(&op)
@@ -477,11 +498,11 @@ mod tests {
             .try_build()
             .unwrap();
 
-        let script = Script::Cid(cid);
+        let script = Script::Cid(Key::default(), cid);
         let op = Op::Update("/move".try_into().unwrap(), Value::Str("zig!".into()));
         let entry = Builder::default()
             .with_vlad(&vlad)
-            .with_lock(&script)
+            .add_lock(&script)
             .with_unlock(&script)
             .add_op(&op)
             .try_build(|e| {

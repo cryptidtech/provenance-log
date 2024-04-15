@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::ScriptError, Error};
+use crate::{error::ScriptError, Error, Key};
 use core::fmt;
 use multibase::Base;
 use multicid::Cid;
@@ -45,9 +45,9 @@ impl Into<u8> for ScriptId {
 impl From<&Script> for ScriptId {
     fn from(op: &Script) -> Self {
         match op {
-            Script::Bin(_) => Self::Bin,
-            Script::Code(_) => Self::Code,
-            Script::Cid(_) => Self::Cid,
+            Script::Bin(_, _) => Self::Bin,
+            Script::Code(_, _) => Self::Code,
+            Script::Cid(_, _) => Self::Cid,
         }
     }
 }
@@ -114,11 +114,22 @@ impl fmt::Debug for ScriptId {
 #[derive(Clone, Eq, PartialEq)]
 pub enum Script {
     /// An empty value
-    Bin(Vec<u8>),
+    Bin(Key, Vec<u8>),
     /// A printable string value
-    Code(String),
+    Code(Key, String),
     /// A binary blob value
-    Cid(Cid),
+    Cid(Key, Cid),
+}
+
+impl Script {
+    /// returns the path the script is assigned to
+    pub fn path(&self) -> Key {
+        match self {
+            Self::Bin(p, _) => p.clone(),
+            Self::Code(p, _) => p.clone(),
+            Self::Cid(p, _) => p.clone(),
+        }
+    }
 }
 
 impl EncodingInfo for Script {
@@ -135,16 +146,16 @@ impl EncodingInfo for Script {
 
 impl Default for Script {
     fn default() -> Self {
-        Self::Bin(Vec::default())
+        Self::Bin(Key::default(), Vec::default())
     }
 }
 
 impl AsRef<[u8]> for Script {
     fn as_ref(&self) -> &[u8] {
         match self {
-            Self::Bin(v) => v.as_ref(),
-            Self::Code(s) => s.as_bytes(),
-            Self::Cid(_) => &[],
+            Self::Bin(_, v) => v.as_ref(),
+            Self::Code(_, s) => s.as_bytes(),
+            Self::Cid(_, _) => &[],
         }
     }
 }
@@ -155,17 +166,23 @@ impl Into<Vec<u8>> for Script {
         // add in the operation
         v.append(&mut ScriptId::from(&self).into());
         match self {
-            Self::Bin(b) => {
+            Self::Bin(p, b) => {
+                // add in the path
+                v.append(&mut p.into());
                 // add in the compiled binary script
                 v.append(&mut Varbytes(b.clone()).into());
                 v
             }
-            Self::Code(s) => {
+            Self::Code(p, s) => {
+                // add in the path
+                v.append(&mut p.into());
                 // add in the uncompiled script
                 v.append(&mut Varbytes(s.as_bytes().to_vec()).into());
                 v
             }
-            Self::Cid(c) => {
+            Self::Cid(p, c) => {
+                // add in the path
+                v.append(&mut p.into());
                 // add in the cid
                 v.append(&mut c.clone().into());
                 v
@@ -191,17 +208,20 @@ impl<'a> TryDecodeFrom<'a> for Script {
         let (id, ptr) = ScriptId::try_decode_from(bytes)?;
         let (v, ptr) = match id {
             ScriptId::Bin => {
+                let (k, ptr) = Key::try_decode_from(ptr)?;
                 let (b, ptr) = Varbytes::try_decode_from(ptr)?;
-                (Self::Bin(b.to_inner()), ptr)
+                (Self::Bin(k, b.to_inner()), ptr)
             }
             ScriptId::Code => {
+                let (k, ptr) = Key::try_decode_from(ptr)?;
                 let (s, ptr) = Varbytes::try_decode_from(ptr)?;
                 let s = String::from_utf8(s.to_inner())?;
-                (Self::Code(s), ptr)
+                (Self::Code(k, s), ptr)
             }
             ScriptId::Cid => {
+                let (k, ptr) = Key::try_decode_from(ptr)?;
                 let (c, ptr) = Cid::try_decode_from(ptr)?;
-                (Self::Cid(c), ptr)
+                (Self::Cid(k, c), ptr)
             }
         };
         Ok((v, ptr))
@@ -212,9 +232,9 @@ impl fmt::Debug for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let id = ScriptId::from(self);
         match self {
-            Self::Bin(b) => write!(f, "{:?} - {:?}", id, Varbytes(b.clone())),
-            Self::Code(s) => write!(f, "{:?} -\n{}", id, s),
-            Self::Cid(c) => write!(f, "{:?} - {:?}", id, c),
+            Self::Bin(k, b) => write!(f, "{:?} - {:?} - {:?}", id, k, Varbytes(b.clone())),
+            Self::Code(k, s) => write!(f, "{:?} - {:?} -\n{}", id, k, s),
+            Self::Cid(k, c) => write!(f, "{:?} - {:?} - {:?}", id, k, c),
         }
     }
 }
@@ -222,6 +242,7 @@ impl fmt::Debug for Script {
 /// Builder for Scripts that helps create them from files and Cid's
 #[derive(Clone, Default)]
 pub struct Builder {
+    path: Option<Key>,
     bin: Option<PathBuf>,
     code: Option<PathBuf>,
     cid: Option<Cid>,
@@ -252,24 +273,31 @@ impl Builder {
         }
     }
 
+    /// add the path which this path is assigned
+    pub fn with_path(mut self, path: &Key) -> Self {
+        self.path = Some(path.clone());
+        self
+    }
+
     /// Tries to build a Script from the collected data
     pub fn try_build(&self) -> Result<Script, Error> {
+        let path = self.path.clone().unwrap_or_default();
         if let Some(b) = &self.bin {
             let b = std::fs::read(b).map_err(|e| ScriptError::LoadingFailed(e.to_string()))?;
             if b.len() < 4 {
                 Err(ScriptError::MissingCode.into())
             } else if b[0] == 0x00 && b[1] == 0x61 && b[2] == 0x73 && b[3] == 0x6d {
-                Ok(Script::Bin(b))
+                Ok(Script::Bin(path, b))
             } else {
                 Err(ScriptError::InvalidScriptMagic.into())
             }
         } else if let Some(c) = &self.code {
             let c = std::fs::read(c).map_err(|e| ScriptError::LoadingFailed(e.to_string()))?;
-            Ok(Script::Code(String::from_utf8(c)?))
+            Ok(Script::Code(path, String::from_utf8(c)?))
         } else if let Some(cid) = &self.cid {
             // TODO: this is where we could handle resolving the Cid into either code or binary
             // script data. for now we're just going to pass it along for later processing
-            Ok(Script::Cid(cid.clone()))
+            Ok(Script::Cid(path, cid.clone()))
         } else {
             Err(ScriptError::BuildFailed.into())
         }

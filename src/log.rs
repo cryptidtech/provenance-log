@@ -208,7 +208,9 @@ impl Log {
     pub fn verify(&self) -> Result<(), Error> {
         let mut kvp = Kvp::default();
         let mut seqno: Option<u64> = None;
-        let mut lock = self.first_lock.clone();
+        // the lock scripts in execution order
+        // NOTE: this needs to preserve the key-path associated with the first lock
+        let mut locks = vec![self.first_lock.clone()];
         for entry in self.iter() {
             let mut pstack = Stk::default();
             let mut rstack = Stk::default();
@@ -269,7 +271,8 @@ impl Log {
             }
 
             // 'lock:
-            let result = {
+            let mut result = false;
+            for lock in locks {
                 let lock_ctx = vm::Context {
                     pairs: &kvp,
                     pstack: &mut pstack,
@@ -292,10 +295,12 @@ impl Log {
                     .map_err(|e| LogError::Wacc(e))?;
 
                 // run the unlock script
-                instance
-                    .run("move_every_zig")
-                    .map_err(|e| LogError::Wacc(e))?
-            };
+                match instance.run("move_every_zig") {
+                    Ok(v) if v == true => { result = true; break; }
+                    Ok(_) => continue,
+                    Err(e) => return Err(LogError::Wacc(e).into())
+                }
+            }
 
             if result == true {
                 // if the entry verifies, apply it's mutataions to the kvp
@@ -305,7 +310,7 @@ impl Log {
                     kvp.apply_entry_ops(entry)?;
                 }
                 // update the lock script to validate the next entry
-                lock = entry.lock.clone();
+                locks = entry.locks.clone();
             } else {
                 return Err(LogError::VerifyFailed(format!("unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}", rstack, pstack)).into());
             }
@@ -424,19 +429,19 @@ impl Builder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{entry, Op, Script, Value};
+    use crate::{Key, Op, Value};
     use multicid::{cid, vlad};
-    use multicodec::Codec;
     use multihash::mh;
-    use multikey::{mk, EncodedMultikey, Multikey, Views};
+    use multikey::{EncodedMultikey, Multikey, Views};
     use std::path::PathBuf;
 
-    fn load_script(file_name: &str) -> Script {
+    fn load_script(path: &Key, file_name: &str) -> Script {
         let mut pb = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         pb.push("examples");
         pb.push("wast");
         pb.push(file_name);
         crate::script::Builder::from_code_file(&pb)
+            .with_path(path)
             .try_build()
             .unwrap()
     }
@@ -468,7 +473,7 @@ mod tests {
             "zF3WX3Dwnv7jv2nPfYL6e2XaLdNyaiwkPyzEtgw65d872KYG22jezzuYPtrds8WSJ3Sv8SCA",
         )
         .unwrap();
-        let key = mk::EncodedMultikey::try_from(
+        let key = EncodedMultikey::try_from(
             "zF3WX3Dwnv7jv2nPfYL6e2XaLdNyfeuKuXMPzh4bk7jXP5cmP5woZkUvVz8GGpAEQtqEK1yx",
         )
         .unwrap();
@@ -493,14 +498,14 @@ mod tests {
             .unwrap();
 
         // load the entry scripts
-        let lock = load_script("lock.wast");
-        let unlock = load_script("unlock.wast");
+        let lock = load_script(&Key::default(), "lock.wast");
+        let unlock = load_script(&Key::default(), "unlock.wast");
         let ephemeral_op = get_key_update_op("/ephemeral", &ephemeral);
         let pubkey_op = get_key_update_op("/pubkey", &key);
 
         let entry = entry::Builder::default()
             .with_vlad(&vlad)
-            .with_lock(&lock)
+            .add_lock(&lock)
             .with_unlock(&unlock)
             .add_op(&ephemeral_op)
             .add_op(&pubkey_op)
@@ -518,7 +523,7 @@ mod tests {
             .unwrap();
 
         // load the first lock script
-        let first = load_script("first.wast");
+        let first = load_script(&Key::default(), "first.wast");
 
         let log = Builder::new()
             .with_vlad(&vlad)
@@ -541,15 +546,15 @@ mod tests {
             "zF3WX3Dwnv7jv2nPfYL6e2XaLdNyaiwkPyzEtgw65d872KYG22jezzuYPtrds8WSJ3Sv8SCA",
         )
         .unwrap();
-        let key1 = mk::EncodedMultikey::try_from(
+        let key1 = EncodedMultikey::try_from(
             "zF3WX3Dwnv7jv2nPfYL6e2XaLdNyfeuKuXMPzh4bk7jXP5cmP5woZkUvVz8GGpAEQtqEK1yx",
         )
         .unwrap();
-        let key2 = mk::EncodedMultikey::try_from(
+        let key2 = EncodedMultikey::try_from(
             "zVCYiTqf3RfiqqE4RxExy9wNL5MoFGzSGgBNqQRAMhX6t43UCRx3kxBL5Lf47tifh",
         )
         .unwrap();
-        let key3 = mk::EncodedMultikey::try_from(
+        let key3 = EncodedMultikey::try_from(
             "zVCf3r3QpMWktTrCdJyRyAoCLd5sYWabKFMoj242TdbX2mvsEDnFWnSDznbZcSYLE",
         )
         .unwrap();
@@ -581,14 +586,14 @@ mod tests {
         let preimage2_op = get_hash_update_op("/hash", "move every zig");
 
         // load the entry scripts
-        let lock = load_script("lock.wast");
-        let unlock = load_script("unlock.wast");
+        let lock = load_script(&Key::default(), "lock.wast");
+        let unlock = load_script(&Key::default(), "unlock.wast");
 
         // create the first, self-signed Entry object
         let e1 = entry::Builder::default()
             .with_vlad(&vlad)
             .with_seqno(0)
-            .with_lock(&lock)
+            .add_lock(&lock)
             .with_unlock(&unlock)
             .add_op(&ephemeral_op)
             .add_op(&pubkey1_op)
@@ -606,7 +611,7 @@ mod tests {
         let e2 = entry::Builder::default()
             .with_vlad(&vlad)
             .with_seqno(1)
-            .with_lock(&lock)
+            .add_lock(&lock)
             .with_unlock(&unlock)
             .with_prev(&e1.cid())
             .add_op(&Op::Delete("/ephemeral".try_into().unwrap()))
@@ -624,7 +629,7 @@ mod tests {
         let e3 = entry::Builder::default()
             .with_vlad(&vlad)
             .with_seqno(2)
-            .with_lock(&lock)
+            .add_lock(&lock)
             .with_unlock(&unlock)
             .with_prev(&e2.cid())
             .try_build(|e| {
@@ -640,7 +645,7 @@ mod tests {
         let e4 = entry::Builder::default()
             .with_vlad(&vlad)
             .with_seqno(3)
-            .with_lock(&lock)
+            .add_lock(&lock)
             .with_unlock(&unlock)
             .with_prev(&e3.cid())
             .add_op(&pubkey3_op)
@@ -653,7 +658,7 @@ mod tests {
         //println!("{:?}", e4);
 
         // load the first lock script
-        let first = load_script("first.wast");
+        let first = load_script(&Key::default(), "first.wast");
 
         let log = Builder::new()
             .with_vlad(&vlad)

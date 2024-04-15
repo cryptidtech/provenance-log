@@ -5,7 +5,6 @@ use crate::{
 };
 use core::fmt;
 use multicid::{Cid, Vlad};
-use multicodec::Codec;
 use serde::{
     de::{Error, MapAccess, Visitor},
     Deserialize, Deserializer,
@@ -124,36 +123,8 @@ impl<'de> Deserialize<'de> for Log {
         if deserializer.is_human_readable() {
             deserializer.deserialize_struct(SIGIL.as_str(), FIELDS, LogVisitor)
         } else {
-            let (sigil, version, vlad, first_lock, foot, head, ent): (
-                Codec,
-                u64,
-                Vlad,
-                Script,
-                Cid,
-                Cid,
-                Vec<(Cid, Entry)>,
-            ) = Deserialize::deserialize(deserializer)?;
-
-            if sigil != SIGIL {
-                return Err(Error::custom("deserialized sigil is not an Log sigil"));
-            }
-            let mut entries = Entries::new();
-            ent.iter()
-                .try_for_each(|(cid, entry)| -> Result<(), D::Error> {
-                    if entries.insert(cid.clone(), entry.clone()).is_some() {
-                        return Err(Error::duplicate_field("duplicate entry cid"));
-                    }
-                    Ok(())
-                })?;
-
-            Ok(Self {
-                version,
-                vlad,
-                first_lock,
-                foot,
-                head,
-                entries,
-            })
+            let b: &'de [u8] = Deserialize::deserialize(deserializer)?;
+            Ok(Self::try_from(b).map_err(|e| Error::custom(e.to_string()))?)
         }
     }
 }

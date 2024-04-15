@@ -155,6 +155,9 @@ pub enum ScriptError {
     /// Missing script code
     #[error("missing script code")]
     MissingCode,
+    /// Missing path
+    #[error("missing path")]
+    MissingPath,
     /// Failed to load script
     #[error("failed to load script: {0}")]
     LoadingFailed(String),

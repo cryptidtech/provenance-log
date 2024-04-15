@@ -106,15 +106,8 @@ impl<'de> Deserialize<'de> for Value {
         if deserializer.is_human_readable() {
             deserializer.deserialize_enum("value", VARIANTS, ValueVisitor)
         } else {
-            let (id, bytes): (ValueId, Varbytes) = Deserialize::deserialize(deserializer)?;
-            match id {
-                ValueId::Nil => Ok(Value::Nil),
-                ValueId::Str => {
-                    let s = String::from_utf8(bytes.to_inner()).map_err(Error::custom)?;
-                    Ok(Value::Str(s))
-                }
-                ValueId::Data => Ok(Value::Data(bytes.to_inner())),
-            }
+            let b: &'de [u8] = Deserialize::deserialize(deserializer)?;
+            Ok(Self::try_from(b).map_err(|e| Error::custom(e.to_string()))?)
         }
     }
 }

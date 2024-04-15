@@ -17,7 +17,7 @@ impl ser::Serialize for Entry {
             ss.serialize_field("lipmaa", &self.lipmaa)?;
             ss.serialize_field("seqno", &self.seqno)?;
             ss.serialize_field("ops", &self.ops)?;
-            ss.serialize_field("lock", &self.lock)?;
+            ss.serialize_field("locks", &self.locks)?;
             ss.serialize_field("unlock", &self.unlock)?;
             ss.serialize_field(
                 "proof",
@@ -25,19 +25,8 @@ impl ser::Serialize for Entry {
             )?;
             ss.end()
         } else {
-            (
-                SIGIL,
-                self.version,
-                self.vlad.clone(),
-                self.prev.clone(),
-                self.lipmaa.clone(),
-                self.seqno,
-                self.ops.clone(),
-                self.lock.clone(),
-                self.unlock.clone(),
-                Varbytes(self.proof.clone()),
-            )
-            .serialize(serializer)
+            let v: Vec<u8> = self.clone().into();
+            serializer.serialize_bytes(v.as_slice())
         }
     }
 }

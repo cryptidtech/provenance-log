@@ -52,15 +52,8 @@ impl ser::Serialize for Value {
                 }
             }
         } else {
-            // regardless of the value type, in binary everything variant is
-            // serialized as a tuple (ValueId, Varbytes)
-            match self {
-                Self::Nil => (ValueId::from(self), Varbytes::default()).serialize(serializer),
-                Self::Str(s) => {
-                    (ValueId::from(self), Varbytes(s.as_bytes().to_vec())).serialize(serializer)
-                }
-                Self::Data(b) => (ValueId::from(self), Varbytes(b.clone())).serialize(serializer),
-            }
+            let v: Vec<u8> = self.clone().into();
+            serializer.serialize_bytes(v.as_slice())
         }
     }
 }

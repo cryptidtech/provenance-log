@@ -2,7 +2,6 @@
 use crate::{entry::SIGIL, Entry, Op, Script};
 use core::fmt;
 use multicid::{Cid, Vlad};
-use multicodec::Codec;
 use multiutil::Varbytes;
 use serde::{
     de::{Error, MapAccess, Visitor},
@@ -16,7 +15,7 @@ impl<'de> Deserialize<'de> for Entry {
         D: Deserializer<'de>,
     {
         const FIELDS: &'static [&'static str] = &[
-            "version", "vlad", "prev", "lipmaa", "seqno", "ops", "lock", "unlock", "proof",
+            "version", "vlad", "prev", "lipmaa", "seqno", "ops", "locks", "unlock", "proof",
         ];
 
         #[derive(Deserialize)]
@@ -28,7 +27,7 @@ impl<'de> Deserialize<'de> for Entry {
             Lipmaa,
             Seqno,
             Ops,
-            Lock,
+            Locks,
             Unlock,
             Proof,
         }
@@ -52,7 +51,7 @@ impl<'de> Deserialize<'de> for Entry {
                 let mut lipmaa = None;
                 let mut seqno = None;
                 let mut ops = None;
-                let mut lock = None;
+                let mut locks = None;
                 let mut unlock = None;
                 let mut proof = None;
                 while let Some(key) = map.next_key()? {
@@ -99,12 +98,12 @@ impl<'de> Deserialize<'de> for Entry {
                             let o: Vec<Op> = map.next_value()?;
                             ops = Some(o);
                         }
-                        Field::Lock => {
-                            if lock.is_some() {
-                                return Err(Error::duplicate_field("lock"));
+                        Field::Locks => {
+                            if locks.is_some() {
+                                return Err(Error::duplicate_field("locks"));
                             }
-                            let s: Script = map.next_value()?;
-                            lock = Some(s);
+                            let l: Vec<Script> = map.next_value()?;
+                            locks = Some(l)
                         }
                         Field::Unlock => {
                             if unlock.is_some() {
@@ -128,7 +127,7 @@ impl<'de> Deserialize<'de> for Entry {
                 let lipmaa = lipmaa.ok_or_else(|| Error::missing_field("lipmaa"))?;
                 let seqno = seqno.ok_or_else(|| Error::missing_field("seqno"))?;
                 let ops = ops.ok_or_else(|| Error::missing_field("ops"))?;
-                let lock = lock.ok_or_else(|| Error::missing_field("lock"))?;
+                let locks = locks.ok_or_else(|| Error::missing_field("locks"))?;
                 let unlock = unlock.ok_or_else(|| Error::missing_field("unlock"))?;
                 let proof = proof.ok_or_else(|| Error::missing_field("proof"))?;
                 Ok(Self::Value {
@@ -138,7 +137,7 @@ impl<'de> Deserialize<'de> for Entry {
                     lipmaa,
                     seqno,
                     ops,
-                    lock,
+                    locks,
                     unlock,
                     proof,
                 })
@@ -148,35 +147,8 @@ impl<'de> Deserialize<'de> for Entry {
         if deserializer.is_human_readable() {
             deserializer.deserialize_struct(SIGIL.as_str(), FIELDS, EntryVisitor)
         } else {
-            let (sigil, version, vlad, prev, lipmaa, seqno, ops, lock, unlock, proof): (
-                Codec,
-                u64,
-                Vlad,
-                Cid,
-                Cid,
-                u64,
-                Vec<Op>,
-                Script,
-                Script,
-                Varbytes,
-            ) = Deserialize::deserialize(deserializer)?;
-
-            if sigil != SIGIL {
-                return Err(Error::custom("deserialized sigil is not an Entry sigil"));
-            }
-            let proof = proof.to_inner();
-
-            Ok(Self {
-                version,
-                vlad,
-                prev,
-                lipmaa,
-                seqno,
-                ops,
-                lock,
-                unlock,
-                proof,
-            })
+            let b: &'de [u8] = Deserialize::deserialize(deserializer)?;
+            Ok(Self::try_from(b).map_err(|e| Error::custom(e.to_string()))?)
         }
     }
 }

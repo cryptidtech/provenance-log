@@ -58,8 +58,8 @@ impl Key {
         }
     }
 
-    /// returns the minimum common branch between this and the other Key
-    pub fn min_branch(&self, rhs: &Key) -> Self {
+    /// returns the longest common branch between this and the other Key
+    pub fn longest_common_branch(&self, rhs: &Key) -> Self {
         let lhs = self.branch();
         let rhs = rhs.branch();
         let mut v = Vec::default();
@@ -241,50 +241,50 @@ mod tests {
     }
 
     #[test]
-    fn min_branch_one() {
+    fn longest_branch_one() {
         let l = Key::try_from("/foo/bar/baz").unwrap();
         let r = Key::try_from("/foo/bar").unwrap();
-        let mk = l.min_branch(&r);
+        let mk = l.longest_common_branch(&r);
         assert!(mk.is_branch());
         assert_eq!(1, mk.len());
         assert_eq!(format!("{}", mk), "/foo/".to_string());
     }
 
     #[test]
-    fn min_branch_two() {
+    fn longest_branch_two() {
         let l = Key::try_from("/foo/bar/baz").unwrap();
         let r = Key::try_from("/blah/boo").unwrap();
-        let mk = l.min_branch(&r);
+        let mk = l.longest_common_branch(&r);
         assert!(mk.is_branch());
         assert_eq!(0, mk.len());
         assert_eq!(format!("{}", mk), "/".to_string());
     }
 
     #[test]
-    fn min_branch_three() {
+    fn longest_branch_three() {
         let l = Key::try_from("/").unwrap();
         let r = Key::try_from("/blah/boo").unwrap();
-        let mk = l.min_branch(&r);
+        let mk = l.longest_common_branch(&r);
         assert!(mk.is_branch());
         assert_eq!(0, mk.len());
         assert_eq!(format!("{}", mk), "/".to_string());
     }
 
     #[test]
-    fn min_branch_four() {
+    fn longest_branch_four() {
         let l = Key::try_from("/").unwrap();
         let r = Key::try_from("/").unwrap();
-        let mk = l.min_branch(&r);
+        let mk = l.longest_common_branch(&r);
         assert!(mk.is_branch());
         assert_eq!(0, mk.len());
         assert_eq!(format!("{}", mk), "/".to_string());
     }
 
     #[test]
-    fn min_branch_five() {
+    fn longest_branch_five() {
         let l = Key::try_from("/foo/bar/baz/blah/").unwrap();
         let r = Key::try_from("/foo/bar/baz/blah/").unwrap();
-        let mk = l.min_branch(&r);
+        let mk = l.longest_common_branch(&r);
         assert!(mk.is_branch());
         assert_eq!(4, mk.len());
         assert_eq!(format!("{}", mk), "/foo/bar/baz/blah/".to_string());

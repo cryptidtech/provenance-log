@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Script, ScriptId};
+use crate::{Key, Script, ScriptId};
 use core::fmt;
 use multicid::Cid;
 use multiutil::{EncodedVarbytes, Varbytes};
@@ -46,18 +46,21 @@ impl<'de> Deserialize<'de> for Script {
             type Value = Script;
 
             fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-                write!(fmt, "enum Script::Bin(b)")
+                write!(fmt, "enum Script::Bin(path, bin)")
             }
 
             fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
             where
                 V: SeqAccess<'de>,
             {
+                let p: Key = seq
+                    .next_element()?
+                    .ok_or_else(|| Error::missing_field("path"))?;
                 let s: &str = seq
                     .next_element()?
                     .ok_or_else(|| Error::missing_field("bin"))?;
                 let v = EncodedVarbytes::try_from(s).map_err(Error::custom)?;
-                Ok(Script::Bin(v.to_inner().to_vec()))
+                Ok(Script::Bin(p, v.to_inner().to_vec()))
             }
         }
 
@@ -67,17 +70,20 @@ impl<'de> Deserialize<'de> for Script {
             type Value = Script;
 
             fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-                write!(fmt, "enum Script::Code(s)")
+                write!(fmt, "enum Script::Code(path, str)")
             }
 
             fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
             where
                 V: SeqAccess<'de>,
             {
+                let p: Key = seq
+                    .next_element()?
+                    .ok_or_else(|| Error::missing_field("path"))?;
                 let s: String = seq
                     .next_element()?
                     .ok_or_else(|| Error::missing_field("code"))?;
-                Ok(Script::Code(s))
+                Ok(Script::Code(p, s))
             }
         }
 
@@ -87,17 +93,20 @@ impl<'de> Deserialize<'de> for Script {
             type Value = Script;
 
             fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-                write!(fmt, "enum Script::Update(key, value)")
+                write!(fmt, "enum Script::Cid(path, cid)")
             }
 
             fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
             where
                 V: SeqAccess<'de>,
             {
+                let p: Key = seq
+                    .next_element()?
+                    .ok_or_else(|| Error::missing_field("path"))?;
                 let cid: Cid = seq
                     .next_element()?
                     .ok_or_else(|| Error::missing_field("cid"))?;
-                Ok(Script::Cid(cid))
+                Ok(Script::Cid(p, cid))
             }
         }
 
@@ -115,9 +124,9 @@ impl<'de> Deserialize<'de> for Script {
                 V: EnumAccess<'de>,
             {
                 match e.variant()? {
-                    (Variant::Bin, v) => Ok(v.tuple_variant(1, BinVisitor)?),
-                    (Variant::Code, v) => Ok(v.tuple_variant(1, CodeVisitor)?),
-                    (Variant::Cid, v) => Ok(v.tuple_variant(1, CidVisitor)?),
+                    (Variant::Bin, v) => Ok(v.tuple_variant(2, BinVisitor)?),
+                    (Variant::Code, v) => Ok(v.tuple_variant(2, CodeVisitor)?),
+                    (Variant::Cid, v) => Ok(v.tuple_variant(2, CidVisitor)?),
                 }
             }
         }
@@ -125,18 +134,8 @@ impl<'de> Deserialize<'de> for Script {
         if deserializer.is_human_readable() {
             deserializer.deserialize_enum("script", VARIANTS, ScriptVisitor)
         } else {
-            let (id, bytes): (ScriptId, Varbytes) = Deserialize::deserialize(deserializer)?;
-            match id {
-                ScriptId::Bin => Ok(Script::Bin(bytes.to_inner())),
-                ScriptId::Code => {
-                    let code = String::from_utf8(bytes.to_inner()).map_err(Error::custom)?;
-                    Ok(Script::Code(code))
-                }
-                ScriptId::Cid => {
-                    let cid = Cid::try_from(bytes.to_inner().as_slice()).map_err(Error::custom)?;
-                    Ok(Script::Cid(cid))
-                }
-            }
+            let b: &'de [u8] = Deserialize::deserialize(deserializer)?;
+            Ok(Self::try_from(b).map_err(|e| Error::custom(e.to_string()))?)
         }
     }
 }

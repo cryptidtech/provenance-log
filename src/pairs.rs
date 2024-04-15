@@ -164,7 +164,7 @@ mod tests {
     fn test_one_entry() {
         let entry = entry::Builder::default()
             .with_vlad(&Vlad::default())
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .add_op(&Op::Update(
                 "/one".try_into().unwrap(),
@@ -229,7 +229,7 @@ mod tests {
 
         let e1 = entry::Builder::default()
             .with_vlad(&Vlad::default())
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .try_build(|e| {
                 e.proof = Vec::default();
@@ -242,7 +242,7 @@ mod tests {
 
         let e2 = entry::Builder::default()
             .with_vlad(&Vlad::default())
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .try_build(|e| {
                 e.proof = Vec::default();
@@ -261,7 +261,7 @@ mod tests {
 
         let e1 = entry::Builder::default()
             .with_vlad(&Vlad::default())
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .add_op(&Op::Update(
                 "one".to_string(),
@@ -313,7 +313,7 @@ mod tests {
         let e2 = entry::Builder::default()
             .with_vlad(&Vlad::default())
             .with_seqno(1)
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .add_op(&Op::Delete("one".to_string()))
             .add_op(&Op::Update(
@@ -353,7 +353,7 @@ mod tests {
         let e3 = entry::Builder::default()
             .with_vlad(&Vlad::default())
             .with_seqno(2)
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .add_op(&Op::Update(
                 "one".to_string(),
@@ -411,7 +411,7 @@ mod tests {
 
         let e1 = entry::Builder::default()
             .with_vlad(&Vlad::default())
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .add_op(&Op::Update(
                 "one".to_string(),
@@ -465,7 +465,7 @@ mod tests {
         let e2a = entry::Builder::default()
             .with_vlad(&Vlad::default())
             .with_seqno(1)
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .add_op(&Op::Delete("one".to_string()))
             .add_op(&Op::Update(
@@ -531,7 +531,7 @@ mod tests {
         let e2b = entry::Builder::default()
             .with_vlad(&Vlad::default())
             .with_seqno(1)
-            .with_lock(&Script::default())
+            .add_lock(&Script::default())
             .with_unlock(&Script::default())
             .add_op(&Op::Update(
                 "one".to_string(),

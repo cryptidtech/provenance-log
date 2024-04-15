@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Op, OpId, Key, Value};
+use crate::{Op, OpId};
 use core::fmt;
 use multiutil::Varbytes;
 use serde::{
@@ -126,18 +126,8 @@ impl<'de> Deserialize<'de> for Op {
         if deserializer.is_human_readable() {
             deserializer.deserialize_enum("op", VARIANTS, OpVisitor)
         } else {
-            let (id, key, value): (OpId, Key, Value) = Deserialize::deserialize(deserializer)?;
-            match id {
-                OpId::Noop => {
-                    Ok(Op::Noop(key))
-                }
-                OpId::Delete => {
-                    Ok(Op::Delete(key))
-                }
-                OpId::Update => {
-                    Ok(Op::Update(key, value))
-                }
-            }
+            let b: &'de [u8] = Deserialize::deserialize(deserializer)?;
+            Ok(Self::try_from(b).map_err(|e| Error::custom(e.to_string()))?)
         }
     }
 }

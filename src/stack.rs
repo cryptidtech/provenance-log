@@ -57,7 +57,6 @@ impl fmt::Debug for Stk {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wacc::vm::Value;
 
     #[test]
     fn test_push_binary() {

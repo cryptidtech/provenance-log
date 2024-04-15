@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Op, OpId, Value};
+use crate::{Op, OpId};
 use multiutil::Varbytes;
 use serde::ser::{self, SerializeTupleVariant};
 
@@ -58,19 +58,8 @@ impl ser::Serialize for Op {
                 }
             }
         } else {
-            // regardless of the enum variant, we serialize a tuple of
-            // (OpId, Varbytes, Value) and a Value serializes as a (ValueId, Varbytes)
-            match self {
-                Self::Noop(key) => {
-                    (OpId::from(self), key, Value::default()).serialize(serializer)
-                }
-                Self::Delete(key) => {
-                    (OpId::from(self), key, Value::default()).serialize(serializer)
-                }
-                Self::Update(key, value) => {
-                    (OpId::from(self), key, value).serialize(serializer)
-                }
-            }
+            let v: Vec<u8> = self.clone().into();
+            serializer.serialize_bytes(v.as_slice())
         }
     }
 }
