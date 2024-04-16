@@ -161,6 +161,47 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_bad_undo() {
+        let mut p = Kvp::default();
+        // this should panic because no entries have been applied
+        let _ = p.undo_entry().unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_same_seqno() {
+        let mut p = Kvp::default();
+
+        let e1 = entry::Builder::default()
+            .with_vlad(&Vlad::default())
+            .add_lock(&Script::default())
+            .with_unlock(&Script::default())
+            .try_build(|e| {
+                e.proof = Vec::default();
+                Ok(())
+            })
+            .unwrap();
+
+        let _ = p.set_entry(&e1).unwrap();
+        p.apply_entry_ops(&e1).unwrap();
+
+        let e2 = entry::Builder::default()
+            .with_vlad(&Vlad::default())
+            .add_lock(&Script::default())
+            .with_unlock(&Script::default())
+            .try_build(|e| {
+                e.proof = Vec::default();
+                Ok(())
+            })
+            .unwrap();
+
+        // this panics because the seqno of e1 is the same
+        let _ = p.set_entry(&e2).unwrap();
+        p.apply_entry_ops(&e2).unwrap();
+    }
+
+    #[test]
     fn test_one_entry() {
         let entry = entry::Builder::default()
             .with_vlad(&Vlad::default())
@@ -214,47 +255,6 @@ mod tests {
     }
 
     /*
-    #[test]
-    #[should_panic]
-    fn test_bad_undo() {
-        let mut p = Kvp::default();
-        // this should panic because no entries have been applied
-        let _ = p.undo_entry().unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_same_seqno() {
-        let mut p = Kvp::default();
-
-        let e1 = entry::Builder::default()
-            .with_vlad(&Vlad::default())
-            .add_lock(&Script::default())
-            .with_unlock(&Script::default())
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
-            .unwrap();
-
-        let _ = p.set_entry(&e1).unwrap();
-        p.apply_entry_ops(&e1).unwrap();
-
-        let e2 = entry::Builder::default()
-            .with_vlad(&Vlad::default())
-            .add_lock(&Script::default())
-            .with_unlock(&Script::default())
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
-            .unwrap();
-
-        // this panics because the seqno of e1 is the same
-        let _ = p.set_entry(&e2).unwrap();
-        p.apply_entry_ops(&e2).unwrap();
-    }
-
     #[test]
     fn test_entries() {
         let mut p = Kvp::default();

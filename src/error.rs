@@ -6,21 +6,21 @@ pub enum Error {
     /// Entry error
     #[error(transparent)]
     Entry(#[from] EntryError),
+    /// Key error 
+    #[error(transparent)]
+    Key(#[from] KeyError),
+    /// Kvp error
+    #[error(transparent)]
+    Kvp(#[from] KvpError),
     /// ProvenanceLog error
     #[error(transparent)]
     Log(#[from] LogError),
     /// Operation error
     #[error(transparent)]
     Op(#[from] OpError),
-    /// Kvp error
-    #[error(transparent)]
-    Kvp(#[from] KvpError),
     /// Script error
     #[error(transparent)]
     Script(#[from] ScriptError),
-    /// Key error 
-    #[error(transparent)]
-    Key(#[from] KeyError),
     /// Operation error
     #[error(transparent)]
     Value(#[from] ValueError),
@@ -44,6 +44,69 @@ pub enum Error {
     /// Utf8 error
     #[error(transparent)]
     Utf8(#[from] std::string::FromUtf8Error),
+}
+
+/// ProvenanceEntry Errors created by this library
+#[derive(Clone, Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum EntryError {
+    /// Missing sigil
+    #[error("missing provenance entry sigil")]
+    MissingSigil,
+    /// Invalid version
+    #[error("Invalid provenance entry version {0}")]
+    InvalidVersion(usize),
+    /// Missing vlad
+    #[error("missing vlad")]
+    MissingVlad,
+    /// Missing libpmaa
+    #[error("missing lipmaa link")]
+    MissingLipmaaLink,
+    /// Missing lock script
+    #[error("missing lock script")]
+    MissingLockScript,
+    /// Missing unlock script
+    #[error("missing unlock script")]
+    MissingUnlockScript,
+    /// Proof generator error
+    #[error("proof generation failed: {0}")]
+    ProofGenerationFailed(#[from] std::fmt::Error),
+    /// Entries are read-only
+    #[error("Entry objects are read-only")]
+    ReadOnly,
+}
+
+/// Key errors created by this library
+#[derive(Clone, Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum KeyError {
+    /// Empty key string 
+    #[error("the key string is empty")]
+    EmptyKey,
+    /// Missing root key separator
+    #[error("key string doesn't begin with the separator: {0}")]
+    MissingRootSeparator(String),
+}
+
+/// Errors created by this library
+#[derive(Clone, Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum KvpError {
+    /// Sequence number must be zero
+    #[error("seqno must be zero")]
+    NonZeroSeqNo,
+    /// Invalid sequence number
+    #[error("invalid seqno")]
+    InvalidSeqNo,
+    /// Empty undo stack
+    #[error("empty undo stack")]
+    EmptyUndoStack,
+    /// No Entry Attributes on the undo stack
+    #[error("no entry attributes on undo stack")]
+    NoEntryAttributes,
+    /// Failed to insert kvp
+    #[error("kvp insert failed")]
+    FailedInsert,
 }
 
 /// ProvenanceLog Errors created by this library
@@ -97,55 +160,16 @@ pub enum LogError {
     KvpSetEntryFailed(String),
 }
 
-/// ProvenanceEntry Errors created by this library
-#[derive(Clone, Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum EntryError {
-    /// Missing sigil
-    #[error("missing provenance entry sigil")]
-    MissingSigil,
-    /// Invalid version
-    #[error("Invalid provenance entry version {0}")]
-    InvalidVersion(usize),
-    /// Missing vlad
-    #[error("missing vlad")]
-    MissingVlad,
-    /// Missing libpmaa
-    #[error("missing lipmaa link")]
-    MissingLipmaaLink,
-    /// Missing lock script
-    #[error("missing lock script")]
-    MissingLockScript,
-    /// Missing unlock script
-    #[error("missing unlock script")]
-    MissingUnlockScript,
-    /// Proof generator error
-    #[error("proof generation failed: {0}")]
-    ProofGenerationFailed(#[from] std::fmt::Error),
-    /// Entries are read-only
-    #[error("Entry objects are read-only")]
-    ReadOnly,
-}
-
 /// Errors created by this library
 #[derive(Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum KvpError {
-    /// Sequence number must be zero
-    #[error("seqno must be zero")]
-    NonZeroSeqNo,
-    /// Invalid sequence number
-    #[error("invalid seqno")]
-    InvalidSeqNo,
-    /// Empty undo stack
-    #[error("empty undo stack")]
-    EmptyUndoStack,
-    /// No Entry Attributes on the undo stack
-    #[error("no entry attributes on undo stack")]
-    NoEntryAttributes,
-    /// Failed to insert kvp
-    #[error("kvp insert failed")]
-    FailedInsert,
+pub enum OpError {
+    /// Invalid operation id
+    #[error("invalid operation id {0}")]
+    InvalidOperationId(u8),
+    /// Invalid operation name
+    #[error("invalid operation name {0}")]
+    InvalidOperationName(String),
 }
 
 /// Errors created by this library
@@ -173,30 +197,6 @@ pub enum ScriptError {
     /// invalid wasm script magic value
     #[error("invalid wasm script")]
     InvalidScriptMagic,
-}
-
-/// Errors created by this library
-#[derive(Clone, Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum OpError {
-    /// Invalid operation id
-    #[error("invalid operation id {0}")]
-    InvalidOperationId(u8),
-    /// Invalid operation name
-    #[error("invalid operation name {0}")]
-    InvalidOperationName(String),
-}
-
-/// Key errors created by this library
-#[derive(Clone, Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum KeyError {
-    /// Empty key string 
-    #[error("the key string is empty")]
-    EmptyKey,
-    /// Missing root key separator
-    #[error("key string doesn't begin with the separator: {0}")]
-    MissingRootSeparator(String),
 }
 
 /// Errors created by this library
