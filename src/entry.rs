@@ -311,22 +311,55 @@ impl Entry {
             Key::default()
         } else {
             // get the first branch
-            let mut ctx = self.ops.first().unwrap().clone().key().branch();
+            let mut ctx = self.ops.first().unwrap().clone().path().branch();
 
             // got through the rest looking for the shortest one
             for k in self.ops.iter() {
-                ctx = k.key().branch().longest_common_branch(&ctx);
+                ctx = k.path().branch().longest_common_branch(&ctx);
             }
             ctx
         }
     }
 
     /// go through the lock script from the previous entry and sort them in order of execution for
-    /// validating this Entry
-    pub fn sort_locks(&self, locks: &Vec<Script>) -> Vec<Script> {
-        let mut locks = locks.clone();
-        locks.sort();
-        locks
+    /// validating this Entry. This goes through the mutation operations in this Event, looking at
+    /// at the path for each op and building the valid set of lock scripts that govern all of teh
+    /// branches and leaves that are modified in the set of mutation operations.
+    pub fn sort_locks(&self, locks: &Vec<Script>) -> Result<Vec<Script>, Error> {
+        // the order of these lock scripts must be preservied in the final list of lock scripts
+        let locks_in = locks.clone();
+        // this is the set of lock scripts that govern all of the ops in the order established by
+        // the lock array passed into this function
+        let mut locks_tmp: Vec<Script> = Vec::default();
+        // if there aren't any mutation ops, then "touch" the root branch "/"
+        let ops = match self.ops.len() {
+            0 => vec![Op::Noop(Key::try_from("/")?)],
+            _ => self.ops.clone()
+        };
+        for op in ops {
+            //println!("checking op {}", op.path());
+            for lock in &locks_in {
+                // if the lock is a leaf, then parent_of is true if the op path is teh same
+                // if the lock is a branch, then parent_of is true if the other path is a child
+                // of the branch
+                if lock.path().parent_of(&op.path()) && !locks_tmp.contains(&lock) {
+                    //println!("adding lock {} because of op {}", lock.path(), op.path());
+                    locks_tmp.push(lock.clone());
+                }
+            }
+        } 
+
+        // now that we have all of the locks that govern one or more of the ops, we need to go
+        // through the locks_in and if each lock is in the locks_tmp, it gets added to the
+        // locks_out so that the order in locks_in is preserved
+        let mut locks_out: Vec<Script> = Vec::default();
+        for lock in &locks_in {
+            if locks_tmp.contains(&lock) && !locks_out.contains(lock) {
+                locks_out.push(lock.clone());
+            }
+        }
+        locks_out.sort();
+        Ok(locks_out)
     }
 }
 
@@ -453,7 +486,7 @@ impl Builder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Value;
+    use crate::{script, Value};
     use multicid::vlad;
     use multikey::nonce;
 
@@ -479,6 +512,72 @@ mod tests {
             assert_eq!(Op::default(), op.clone());
         }
         assert_eq!(format!("{}", entry.context()), "/".to_string());
+    }
+
+    #[test]
+    fn test_sort_locks() {
+        let vlad = Vlad::default();
+        let script = Script::default();
+        let cid1 = cid::Builder::new(Codec::Cidv1)
+            .with_target_codec(Codec::DagCbor)
+            .with_hash(
+                &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
+                .unwrap().try_build().unwrap()
+            )
+            .try_build()
+            .unwrap();
+        let cid2 = cid::Builder::new(Codec::Cidv1)
+            .with_target_codec(Codec::DagCbor)
+            .with_hash(
+                &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
+                .unwrap().try_build().unwrap()
+            )
+            .try_build()
+            .unwrap();
+        let locks_in: Vec<Script> = vec![
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::default())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid2)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/foo").unwrap())
+                .try_build().unwrap(),
+        ];
+
+        let ops: Vec<Op> = vec![
+            Op::Noop(Key::try_from("/foo").unwrap()),
+            Op::Update(Key::try_from("/bar/baz").unwrap(), Value::default()),
+            Op::Delete(Key::try_from("/bob/babe/boo").unwrap()),
+        ];
+
+        let entry = Builder::default()
+            .with_vlad(&vlad)
+            .with_unlock(&script)
+            .with_ops(&ops)
+            .try_build(|e| {
+                e.proof = Vec::default();
+                Ok(())
+            })
+            .unwrap();
+
+        let locks_out = entry.sort_locks(&locks_in).unwrap();
+        println!("OPS");
+        for op in &ops {
+            println!("op: {} - {:?}", op.path(), op);
+        }
+        println!("\nINPUT LOCKS");
+        for lock in &locks_in {
+            println!("lock: {} - {:?}", lock.path(), lock)
+        }
+        println!("\nLOCKS IN ORDER");
+        for lock in &locks_out {
+            println!("lock: {} - {:?}", lock.path(), lock)
+        }
     }
 
     #[test]

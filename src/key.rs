@@ -30,6 +30,38 @@ impl Key {
         self.parts.last().unwrap().len() > 0
     }
 
+    /// true if this path is a branch and the passed in path is achild of it
+    /// treu if this path is a leaf and the passed in path is the same path
+    pub fn parent_of(&self, other: &Self) -> bool {
+        //println!("\t{} is a {}", self, if self.is_leaf() { "leaf" } else { "branch" });
+        if self.is_leaf() {
+            self == other
+        } else {
+            let mut self_parts = Vec::default();
+            let mut itr = self.parts.iter();
+            itr.next(); // skip the first ""
+            while let Some(p) = itr.next() {
+                self_parts.push("/".to_string());
+                if p.len() > 0 {
+                    self_parts.push(p.clone());
+                }
+            }
+
+            let mut other_parts = Vec::default();
+            let mut itr = other.parts.iter();
+            itr.next(); // skip the first ""
+            while let Some(p) = itr.next() {
+                other_parts.push("/".to_string());
+                if p.len() > 0 {
+                    other_parts.push(p.clone());
+                }
+            }
+
+            //println!("\t{:?} {} with {:?}", other_parts, if other_parts.starts_with(&self_parts) { "starts" } else { "does not start" }, self_parts);
+            other_parts.starts_with(&self_parts)
+        }
+    }
+
     /// returns the number of parts in the key
     pub fn len(&self) -> usize {
         match self.parts.len() {

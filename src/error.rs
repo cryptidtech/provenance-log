@@ -89,6 +89,12 @@ pub enum LogError {
     /// Verify failed
     #[error("Log verify failed {0}")]
     VerifyFailed(String),
+    /// Updating kvp failed
+    #[error("Updating kvp failed {0}")]
+    UpdateKvpFailed(String),
+    /// Updating kvp failed
+    #[error("Kvp set entry failed {0}")]
+    KvpSetEntryFailed(String),
 }
 
 /// ProvenanceEntry Errors created by this library
