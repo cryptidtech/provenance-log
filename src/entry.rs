@@ -331,11 +331,20 @@ impl Entry {
         // this is the set of lock scripts that govern all of the ops in the order established by
         // the lock array passed into this function
         let mut locks_tmp: Vec<Script> = Vec::default();
-        // if there aren't any mutation ops, then "touch" the root branch "/"
-        let ops = match self.ops.len() {
+        // if there aren't any mutation ops, then "touch" the root branch "/" to force the root
+        // lock script to execute
+        let mut ops = match self.ops.len() {
             0 => vec![Op::Noop(Key::try_from("/")?)],
             _ => self.ops.clone()
         };
+        // if this entry changes the lock scripts from the previous entry then "touch" the root
+        // branch "/" to force the root lock script to execute
+        if locks_in != self.locks {
+            ops.push(Op::Noop(Key::try_from("/")?));
+        }
+
+        // go through the set of mutation operations to figure out which lock scripts govern the
+        // proposed mutations
         for op in ops {
             //println!("checking op {}", op.path());
             for lock in &locks_in {
@@ -358,6 +367,8 @@ impl Entry {
                 locks_out.push(lock.clone());
             }
         }
+        // this puts the lock scripts in the order from root to leaf by their key-paths. this
+        // is a stable sort that preserves ordering of locks that govern the same path.
         locks_out.sort();
         Ok(locks_out)
     }
@@ -515,6 +526,140 @@ mod tests {
     }
 
     #[test]
+    fn test_sort_locks_change_lock_order() {
+        let vlad = Vlad::default();
+        let script = Script::default();
+        let cid1 = cid::Builder::new(Codec::Cidv1)
+            .with_target_codec(Codec::DagCbor)
+            .with_hash(
+                &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
+                .unwrap().try_build().unwrap()
+            )
+            .try_build()
+            .unwrap();
+        let cid2 = cid::Builder::new(Codec::Cidv1)
+            .with_target_codec(Codec::DagCbor)
+            .with_hash(
+                &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
+                .unwrap().try_build().unwrap()
+            )
+            .try_build()
+            .unwrap();
+        let locks_in1: Vec<Script> = vec![
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::default())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid2)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/foo").unwrap())
+                .try_build().unwrap(),
+        ];
+
+        // these are the same as above just in a different order which is significant
+        let locks_in2: Vec<Script> = vec![
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::default())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid2)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/foo").unwrap())
+                .try_build().unwrap(),
+        ];
+
+        let ops: Vec<Op> = vec![
+            Op::Noop(Key::try_from("/foo").unwrap()),
+            Op::Update(Key::try_from("/bar/baz").unwrap(), Value::default()),
+            Op::Delete(Key::try_from("/bob/babe/boo").unwrap()),
+        ];
+
+        let entry = Builder::default()
+            .with_vlad(&vlad)
+            .with_unlock(&script)
+            .with_locks(&locks_in2) // same locks, different order
+            .with_ops(&ops)
+            .try_build(|e| {
+                e.proof = Vec::default();
+                Ok(())
+            })
+            .unwrap();
+
+        // sorting/filtering the locks from the previous event. in this case they are the same
+        // locks but in a different order.
+        let locks_out = entry.sort_locks(&locks_in1).unwrap();
+        assert_eq!(locks_out[0],
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::default())
+                .try_build().unwrap());
+    }
+
+    #[test]
+    fn test_sort_locks_no_ops() {
+        let vlad = Vlad::default();
+        let script = Script::default();
+        let cid1 = cid::Builder::new(Codec::Cidv1)
+            .with_target_codec(Codec::DagCbor)
+            .with_hash(
+                &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
+                .unwrap().try_build().unwrap()
+            )
+            .try_build()
+            .unwrap();
+        let cid2 = cid::Builder::new(Codec::Cidv1)
+            .with_target_codec(Codec::DagCbor)
+            .with_hash(
+                &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
+                .unwrap().try_build().unwrap()
+            )
+            .try_build()
+            .unwrap();
+        let locks_in: Vec<Script> = vec![
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::default())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid2)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/foo").unwrap())
+                .try_build().unwrap(),
+        ];
+
+        let ops: Vec<Op> = vec![
+        ];
+
+        let entry = Builder::default()
+            .with_vlad(&vlad)
+            .with_unlock(&script)
+            .with_ops(&ops)
+            .try_build(|e| {
+                e.proof = Vec::default();
+                Ok(())
+            })
+            .unwrap();
+
+        let locks_out = entry.sort_locks(&locks_in).unwrap();
+        assert_eq!(locks_out,
+            vec![
+                script::Builder::from_code_cid(&cid1)
+                    .with_path(&Key::default())
+                    .try_build().unwrap(),
+            ]);
+    }
+
+    #[test]
     fn test_sort_locks() {
         let vlad = Vlad::default();
         let script = Script::default();
@@ -566,20 +711,28 @@ mod tests {
             .unwrap();
 
         let locks_out = entry.sort_locks(&locks_in).unwrap();
-        println!("OPS");
-        for op in &ops {
-            println!("op: {} - {:?}", op.path(), op);
-        }
-        println!("\nINPUT LOCKS");
-        for lock in &locks_in {
-            println!("lock: {} - {:?}", lock.path(), lock)
-        }
-        println!("\nLOCKS IN ORDER");
-        for lock in &locks_out {
-            println!("lock: {} - {:?}", lock.path(), lock)
-        }
-    }
+        assert_eq!(locks_out[0],
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::default())
+                .try_build().unwrap(),
+        );
+        assert_eq!(locks_out[1],
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap()
+        );
+        assert_eq!(locks_out[2],
+            script::Builder::from_code_cid(&cid2)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build().unwrap(),
+        );
 
+        assert_eq!(locks_out[3],
+            script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::try_from("/foo").unwrap())
+                .try_build().unwrap(),
+        );
+    }
     #[test]
     fn test_preimage() {
         // build a nonce
