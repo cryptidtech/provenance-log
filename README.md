@@ -16,7 +16,8 @@ over the log.
 
 ## Features
 * Sequence numbering for detecting forks and erasures.
-* Lipmaa links for O(log N) path lengths between any two entries in a plog.
+* [Lipmaa][LIPMAA] links for O(log N) path lengths between any two entries in a
+  plog.
 * Forking capability to create child plogs with back links to the parent plog
   forming a DAG of plogs.
 * Stable, non-key-material identifier to scope/namespace each branch in the
@@ -774,10 +775,11 @@ scripts in the child to validate the second entry in the child provenance log
 which can then remove the `"/forks/child1/"` branch if so desired.
 
 [CRYPTID]: https://cryptid.tech/
-[PROVENANCE]: https://github.com/cryptidtech/provenance-specifications/
-[MULTIFORMATS]: https://github.com/multiformats/multiformats/
 [FSL]: https://github.com/cryptidtech/provenance-log/blob/main/LICENSE.md
-[WACC]: https://github.com/cryptidtech/wacc.git
+[LIPMAA]: https://github.com/AljoschaMeyer/bamboo/blob/master/README.md#links-and-entry-verification
+[MULTIFORMATS]: https://github.com/multiformats/multiformats/
 [MULTIKEY]: https://github.com/cryptidtech/multikey.git
-[MULTISIG]: https://github.com/cryptidtech/multisig.git
 [MULTIHASH]: https://github.com/cryptidtech/multihash.git
+[MULTISIG]: https://github.com/cryptidtech/multisig.git
+[PROVENANCE]: https://github.com/cryptidtech/provenance-specifications/
+[WACC]: https://github.com/cryptidtech/wacc.git
