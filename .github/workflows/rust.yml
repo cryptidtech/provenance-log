@@ -16,7 +16,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: cryptidtech/ssh-agent@v0.1.12
+    - uses: cryptidtech/ssh-agent@v0.1.13
       with:
         ssh-private-key: ${{ secrets.WACC_DEPLOY_KEY }}
     - name: Build
