@@ -177,10 +177,7 @@ mod tests {
             .with_vlad(&Vlad::default())
             .add_lock(&Script::default())
             .with_unlock(&Script::default())
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
+            .try_build(|_| Ok(Vec::default()))
             .unwrap();
 
         let _ = p.set_entry(&e1).unwrap();
@@ -190,10 +187,7 @@ mod tests {
             .with_vlad(&Vlad::default())
             .add_lock(&Script::default())
             .with_unlock(&Script::default())
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
+            .try_build(|_| Ok(Vec::default()))
             .unwrap();
 
         // this panics because the seqno of e1 is the same
@@ -225,10 +219,7 @@ mod tests {
                 "/three".try_into().unwrap(),
                 Value::Str("baz".to_string()),
             ))
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
+            .try_build(|_| Ok(Vec::default()))
             .unwrap();
 
         let mut p = Kvp::default();

@@ -621,8 +621,7 @@ mod tests {
                 // generate the signature over the event
                 let ms = sv.sign(&ev, false, None).unwrap();
                 // store the signature as proof
-                e.proof = ms.into();
-                Ok(())
+                Ok(ms.into())
             })
             .unwrap();
 
@@ -711,8 +710,7 @@ mod tests {
                 let ev: Vec<u8> = e.clone().into();
                 let sv = ephemeral.sign_view().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
-                e.proof = ms.into();
-                Ok(())
+                Ok(ms.into())
             })
             .unwrap();
 
@@ -729,8 +727,7 @@ mod tests {
                 let ev: Vec<u8> = e.clone().into();
                 let sv = key1.sign_view().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
-                e.proof = ms.into();
-                Ok(())
+                Ok(ms.into())
             })
             .unwrap();
 
@@ -745,8 +742,7 @@ mod tests {
                 let ev: Vec<u8> = e.clone().into();
                 let sv = key2.sign_view().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
-                e.proof = ms.into();
-                Ok(())
+                Ok(ms.into())
             })
             .unwrap();
 
@@ -759,9 +755,8 @@ mod tests {
             .with_prev(&e3.cid())
             .add_op(&pubkey3_op)    // "/pubkey"
             .add_op(&preimage2_op)  // "/preimage"
-            .try_build(|e| {
-                e.proof = "for great justice".as_bytes().to_vec();
-                Ok(())
+            .try_build(|_| {
+                Ok(b"for great justice".to_vec())
             })
             .unwrap();
         //println!("{:?}", e4);

@@ -264,7 +264,7 @@ impl Default for Entry {
             .with_vlad(&Vlad::default())
             .with_seqno(0)
             .with_unlock(&Script::default())
-            .try_build(|_| Ok(()))
+            .try_build(|_| Ok(Vec::default()))
             .unwrap()
     }
 }
@@ -461,7 +461,7 @@ impl Builder {
     /// closure to generate a lock script and proof
     pub fn try_build<F>(&self, mut gen_proof: F) -> Result<Entry, Error>
     where
-        F: FnMut(&mut Entry) -> Result<(), Error>,
+        F: FnMut(&mut Entry) -> Result<Vec<u8>, Error>,
     {
         let version = self.version;
         let vlad = self.vlad.clone().ok_or(EntryError::MissingVlad)?;
@@ -488,7 +488,7 @@ impl Builder {
         };
 
         // call the gen_proof closure to create and store the proof data
-        gen_proof(&mut entry)?;
+        entry.proof = gen_proof(&mut entry)?;
 
         Ok(entry)
     }
@@ -512,10 +512,7 @@ mod tests {
             .add_op(&op)
             .add_op(&op)
             .add_op(&op)
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
+            .try_build(|_| Ok(Vec::default()))
             .unwrap();
 
         assert_eq!(entry.seqno(), 0);
@@ -587,10 +584,7 @@ mod tests {
             .with_unlock(&script)
             .with_locks(&locks_in2) // same locks, different order
             .with_ops(&ops)
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
+            .try_build(|_| Ok(Vec::default()))
             .unwrap();
 
         // sorting/filtering the locks from the previous event. in this case they are the same
@@ -644,10 +638,7 @@ mod tests {
             .with_vlad(&vlad)
             .with_unlock(&script)
             .with_ops(&ops)
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
+            .try_build(|_| Ok(Vec::default()))
             .unwrap();
 
         let locks_out = entry.sort_locks(&locks_in).unwrap();
@@ -704,10 +695,7 @@ mod tests {
             .with_vlad(&vlad)
             .with_unlock(&script)
             .with_ops(&ops)
-            .try_build(|e| {
-                e.proof = Vec::default();
-                Ok(())
-            })
+            .try_build(|_| Ok(Vec::default()))
             .unwrap();
 
         let locks_out = entry.sort_locks(&locks_in).unwrap();
@@ -765,12 +753,7 @@ mod tests {
             .add_lock(&script)
             .with_unlock(&script)
             .add_op(&op)
-            .try_build(|e| {
-                let mut b = Vec::default();
-                b.append(&mut e.vlad.clone().into());
-                e.proof = b;
-                Ok(())
-            })
+            .try_build(|e| Ok(e.vlad.clone().into()))
             .unwrap();
 
         assert_eq!(entry.seqno(), 0);

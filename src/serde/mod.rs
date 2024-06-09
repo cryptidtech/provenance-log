@@ -485,10 +485,7 @@ mod tests {
             .with_unlock(&script)
             .add_op(&op)
             .try_build(|e| {
-                let mut b = Vec::default();
-                b.append(&mut e.vlad.clone().into());
-                e.proof = b;
-                Ok(())
+                Ok(e.vlad.clone().into())
             })
             .unwrap();
 
