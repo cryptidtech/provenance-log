@@ -30,6 +30,17 @@ impl Key {
         self.parts.last().unwrap().len() > 0
     }
 
+    /// add a key-path to us
+    pub fn push<S: AsRef<str>>(&mut self, s: S) -> Result<(), Error> {
+        if !self.is_branch() {
+            return Err(KeyError::NotABranch.into());
+        }
+        let moar = Self::try_from(s.as_ref())?;
+        let _ = self.parts.pop();
+        self.parts.append(&mut moar.parts[1..].iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        Ok(())
+    }
+
     /// true if this path is a branch and the passed in path is achild of it
     /// treu if this path is a leaf and the passed in path is the same path
     pub fn parent_of(&self, other: &Self) -> bool {
@@ -334,5 +345,35 @@ mod tests {
         for k in v {
             println!("{}", k);
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn push_to_leaf() {
+        let mut l = Key::try_from("/foo/bar/baz").unwrap();
+        l.push("/blah").unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn push_invalid_key() {
+        let mut k = Key::try_from("/foo/bar/").unwrap();
+        k.push("baz").unwrap();
+    }
+
+    #[test]
+    fn push_leaf() {
+        let mut b = Key::try_from("/foo/bar/").unwrap();
+        b.push("/baz").unwrap();
+        assert!(b.is_leaf());
+        assert_eq!(format!("{}", b), "/foo/bar/baz".to_string());
+    }
+
+    #[test]
+    fn push_branch() {
+        let mut b = Key::try_from("/foo/bar/").unwrap();
+        b.push("/baz/").unwrap();
+        assert!(b.is_branch());
+        assert_eq!(format!("{}", b), "/foo/bar/baz/".to_string());
     }
 }

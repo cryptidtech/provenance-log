@@ -89,6 +89,9 @@ pub enum KeyError {
     /// Missing root key separator
     #[error("key string doesn't begin with the separator: {0}")]
     MissingRootSeparator(String),
+    /// Key is not a branch
+    #[error("key is not a branch")]
+    NotABranch,
 }
 
 /// Errors created by this library
