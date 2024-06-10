@@ -25,7 +25,7 @@ pub type Entries = BTreeMap<Cid, Entry>;
 /// together using content addressing links. Entry object also has a lipmaa
 /// linking structure for efficient O(log n) traversal between any two Entry
 /// object in the Log.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Log {
     /// The version of this log format
     pub version: u64,
