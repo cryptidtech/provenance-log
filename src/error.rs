@@ -75,8 +75,8 @@ pub enum EntryError {
     #[error("Entry objects are read-only")]
     ReadOnly,
     /// Signing the entry failed
-    #[error(transparent)]
-    SignFailed(#[from] &'static dyn std::error::Error)
+    #[error("Signing the entry failed {0}")]
+    SignFailed(String),
 }
 
 /// Key errors created by this library
