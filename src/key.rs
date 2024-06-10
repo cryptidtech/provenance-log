@@ -16,7 +16,8 @@ pub const KEY_SEPARATOR: char = '/';
 /// Branches identify a namespace full of leaves and a leaf identifies a single value
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Key {
-    parts: Vec<String>
+    parts: Vec<String>,
+    s: String, // holds the "rendered" string so we can return a &str
 }
 
 impl Key {
@@ -38,6 +39,7 @@ impl Key {
         let moar = Self::try_from(s.as_ref())?;
         let _ = self.parts.pop();
         self.parts.append(&mut moar.parts[1..].iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        self.s = self.parts.join(&KEY_SEPARATOR.to_string());
         Ok(())
     }
 
@@ -92,12 +94,11 @@ impl Key {
         if self.is_branch() || self.len() == 0 {
             self.clone()
         } else {
-            let mut p = self.parts.clone();
-            let _ = p.pop();
-            p.push("".to_string());
-            Self {
-                parts: p
-            }
+            let mut parts = self.parts.clone();
+            let _ = parts.pop();
+            parts.push("".to_string());
+            let s = parts.join(&KEY_SEPARATOR.to_string());
+            Self { parts, s }
         }
     }
 
@@ -105,40 +106,41 @@ impl Key {
     pub fn longest_common_branch(&self, rhs: &Key) -> Self {
         let lhs = self.branch();
         let rhs = rhs.branch();
-        let mut v = Vec::default();
+        let mut parts = Vec::default();
         let mut itr = lhs.parts.iter().zip(rhs.parts.iter());
         while let Some((l, r)) = itr.next() {
             if l == r {
-                v.push(l.clone());
+                parts.push(l.clone());
             } else {
                 break;
             }
         }
 
-        match v.len() {
+        match parts.len() {
             0 => {
-                v.push("".to_string());
-                v.push("".to_string());
+                parts.push("".to_string());
+                parts.push("".to_string());
             }
             1 => {
-                v.push("".to_string());
+                parts.push("".to_string());
             }
             _ => {
-                if v.last() != Some(&"".to_string()) {
-                    v.push("".to_string());
+                if parts.last() != Some(&"".to_string()) {
+                    parts.push("".to_string());
                 }
             }
         }
 
-        Self { parts: v }
+        let s = parts.join(&KEY_SEPARATOR.to_string());
+        Self { parts, s }
     }
 }
 
 impl Default for Key {
     fn default() -> Self {
-        Key {
-            parts: vec!["".to_string(), "".to_string()]
-        }
+        let parts = vec!["".to_string(), "".to_string()];
+        let s = parts.join(&KEY_SEPARATOR.to_string());
+        Self { parts, s }
     }
 }
 
@@ -187,7 +189,7 @@ impl TryFrom<&str> for Key {
     type Error = Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Key::try_from(s.to_string())
+        Self::try_from(s.to_string())
     }
 }
 
@@ -224,9 +226,15 @@ impl TryFrom<String> for Key {
             }
             filtered
         };
-        Ok(Key {
-            parts: filtered.split(KEY_SEPARATOR).map(|s| s.to_string()).collect()
-        })
+        let parts = filtered.split(KEY_SEPARATOR).map(|s| s.to_string()).collect::<Vec<_>>();
+        let s = parts.join(&KEY_SEPARATOR.to_string());
+        Ok(Self { parts, s })
+    }
+}
+
+impl AsRef<str> for Key {
+    fn as_ref(&self) -> &str {
+        self.s.as_str()
     }
 }
 
@@ -375,5 +383,11 @@ mod tests {
         b.push("/baz/").unwrap();
         assert!(b.is_branch());
         assert_eq!(format!("{}", b), "/foo/bar/baz/".to_string());
+    }
+
+    #[test]
+    fn test_as_ref() {
+        let b = Key::try_from("/foo/bar").unwrap();
+        assert_eq!(b.as_ref(), "/foo/bar");
     }
 }
