@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{error::KvpError, Entry, Error, Key, Op, Value};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 /// Kvp is the virtual key-value pair storage system that builds up the state
 /// encoded in provenance logs as time series of verifiable state changes.
@@ -54,6 +54,19 @@ impl<'a> wacc::Pairs for Kvp<'a> {
             Some(Value::Data(v)) => Some(wacc::Value::Bin(v)),
             None => None
         }
+    }
+}
+
+impl<'a> fmt::Display for Kvp<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (k, v) in self.kvp.iter() {
+            match v {
+                Value::Nil => writeln!(f, "{}: nil", k)?,
+                Value::Str(s) => writeln!(f, "{}: {}", k, s)?,
+                Value::Data(v) => writeln!(f, "{}: data of length: {}", k, v.len())?,
+            }
+        }
+        write!(f, "")
     }
 }
 
