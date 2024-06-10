@@ -61,9 +61,9 @@ impl<'a> fmt::Display for Kvp<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (k, v) in self.kvp.iter() {
             match v {
-                Value::Nil => writeln!(f, "{}: nil", k)?,
-                Value::Str(s) => writeln!(f, "{}: {}", k, s)?,
-                Value::Data(v) => writeln!(f, "{}: data of length: {}", k, v.len())?,
+                Value::Nil => writeln!(f, "'{}' -> nil", k)?,
+                Value::Str(s) => writeln!(f, "'{}' -> {}", k, s)?,
+                Value::Data(v) => writeln!(f, "'{}' -> data of length: {}", k, v.len())?,
             }
         }
         write!(f, "")
