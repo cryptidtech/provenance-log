@@ -421,6 +421,21 @@ impl Log {
             error: None
         }
     }
+
+    /// Try to add an entry to the p.log
+    pub fn try_append(&mut self, entry: &Entry) -> Result<(), Error> {
+        let cid = entry.cid();
+        let mut plog = self.clone();
+        plog.entries.insert(cid.clone(), entry.clone());
+        let mut vi = plog.verify();
+        while let Some(ret) = vi.next() {
+            if let Some(e) = ret.err() {
+                return Err(LogError::VerifyFailed(e.to_string()).into());
+            }
+        }
+        self.entries.insert(cid.clone(), entry.clone());
+        Ok(())
+    }
 }
 
 /// Builder for Log objects
