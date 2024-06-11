@@ -7,7 +7,7 @@ use multicodec::Codec;
 use multihash::mh;
 use multitrait::{Null, TryDecodeFrom};
 use multiutil::{BaseEncoded, CodecInfo, EncodingInfo, Varbytes, Varuint};
-use std::cmp::Ordering;
+use std::{convert::From, cmp::Ordering};
 
 /// the multicodec sigil for a provenance entry
 pub const SIGIL: Codec = Codec::ProvenanceLogEntry;
@@ -280,6 +280,11 @@ impl Entry {
         self.seqno
     }
 
+    /// Get the vlad for the whole p.log
+    pub fn vlad(&self) -> Vlad {
+        self.vlad.clone()
+    }
+
     /// get an iterator over the operations in the entry
     pub fn ops(&self) -> impl Iterator<Item = &Op> {
         self.ops.iter()
@@ -397,6 +402,22 @@ impl Default for Builder {
             seqno: None,
             ops: Vec::default(),
             locks: Vec::default(),
+            unlock: None,
+        }
+    }
+}
+
+// this initializes a builder for the next entry after this one
+impl From<&Entry> for Builder {
+    fn from(entry: &Entry) -> Self {
+        Self {
+            version: ENTRY_VERSION,
+            vlad: Some(entry.vlad()),
+            prev: Some(entry.cid()),
+            lipmaa: None,
+            seqno: Some(entry.seqno() + 1),
+            ops: Vec::default(),
+            locks: entry.locks.clone(),
             unlock: None,
         }
     }
@@ -520,6 +541,40 @@ mod tests {
             assert_eq!(Op::default(), op.clone());
         }
         assert_eq!(format!("{}", entry.context()), "/".to_string());
+    }
+
+    #[test]
+    fn test_builder_next() {
+        let vlad = Vlad::default();
+        let script = Script::default();
+        let op = Op::default();
+        let entry = Builder::default()
+            .with_vlad(&vlad)
+            .with_unlock(&script)
+            .add_op(&op)
+            .add_op(&op)
+            .add_op(&op)
+            .try_build(|_| Ok(Vec::default()))
+            .unwrap();
+
+        assert_eq!(entry.seqno(), 0);
+        for op in entry.ops() {
+            assert_eq!(Op::default(), op.clone());
+        }
+        assert_eq!(format!("{}", entry.context()), "/".to_string());
+
+        let entry2 = Builder::from(&entry)
+            .with_unlock(&script)
+            .add_op(&op)
+            .add_op(&op)
+            .add_op(&op)
+            .try_build(|_| Ok(Vec::default()))
+            .unwrap();
+        assert_eq!(entry2.seqno(), 1);
+        for op in entry2.ops() {
+            assert_eq!(Op::default(), op.clone());
+        }
+        assert_eq!(format!("{}", entry2.context()), "/".to_string());
     }
 
     #[test]
