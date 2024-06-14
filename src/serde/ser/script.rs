@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Script, ScriptId};
+use crate::{script::SIGIL, Script, ScriptId};
 use multiutil::{EncodingInfo, Varbytes};
 use serde::ser::{self, SerializeTupleVariant};
 
@@ -27,7 +27,7 @@ impl ser::Serialize for Script {
             match self {
                 Self::Bin(p, b) => {
                     let mut ss = serializer.serialize_tuple_variant(
-                        "script",
+                        SIGIL.as_str(),
                         ScriptId::Bin.code() as u32,
                         ScriptId::Bin.as_str(),
                         2,
@@ -38,7 +38,7 @@ impl ser::Serialize for Script {
                 }
                 Self::Code(p, s) => {
                     let mut ss = serializer.serialize_tuple_variant(
-                        "script",
+                        SIGIL.as_str(),
                         ScriptId::Code.code() as u32,
                         ScriptId::Code.as_str(),
                         2,
@@ -49,7 +49,7 @@ impl ser::Serialize for Script {
                 }
                 Self::Cid(p, cid) => {
                     let mut ss = serializer.serialize_tuple_variant(
-                        "script",
+                        SIGIL.as_str(),
                         ScriptId::Cid.code() as u32,
                         ScriptId::Cid.as_str(),
                         2,

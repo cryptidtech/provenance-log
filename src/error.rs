@@ -182,6 +182,9 @@ pub enum OpError {
 #[derive(Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ScriptError {
+    /// Missing sigil
+    #[error("missing provenance entry sigil")]
+    MissingSigil,
     /// Invalid script type id
     #[error("invalid script type id {0}")]
     InvalidScriptId(u8),
