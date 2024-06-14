@@ -38,7 +38,7 @@ pub use pairs::Kvp;
 
 /// Script related functions
 pub mod script;
-pub use script::{Encoded, Script, ScriptId};
+pub use script::{EncodedScript, Script, ScriptId};
 
 /// Serde serialization
 #[cfg(feature = "serde")]
