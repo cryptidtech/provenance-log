@@ -5,11 +5,14 @@ use multibase::Base;
 use multicid::Cid;
 use multicodec::Codec;
 use multitrait::{EncodeInto, TryDecodeFrom};
-use multiutil::{EncodingInfo, Varbytes};
+use multiutil::{BaseEncoded, EncodingInfo, Varbytes};
 use std::{cmp::Ordering, path::PathBuf};
 
 /// the multicodec sigil for a provenance entry
 pub const SIGIL: Codec = Codec::ProvenanceLogScript;
+
+/// a base encoded provenance script
+pub type EncodedScript = BaseEncoded<Script>;
 
 /// the identifiers for the operations performed on the namespace in each entry
 #[repr(u8)]
