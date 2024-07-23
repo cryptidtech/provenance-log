@@ -3,9 +3,16 @@ use crate::{error::ScriptError, Error, Key};
 use core::fmt;
 use multibase::Base;
 use multicid::Cid;
+use multicodec::Codec;
 use multitrait::{EncodeInto, TryDecodeFrom};
-use multiutil::{EncodingInfo, Varbytes};
+use multiutil::{BaseEncoded, EncodingInfo, Varbytes};
 use std::{cmp::Ordering, path::PathBuf};
+
+/// the multicodec sigil for a provenance entry
+pub const SIGIL: Codec = Codec::ProvenanceLogScript;
+
+/// a base encoded provenance script
+pub type EncodedScript = BaseEncoded<Script>;
 
 /// the identifiers for the operations performed on the namespace in each entry
 #[repr(u8)]
@@ -177,6 +184,8 @@ impl AsRef<[u8]> for Script {
 impl Into<Vec<u8>> for Script {
     fn into(self) -> Vec<u8> {
         let mut v = Vec::default();
+        // add in the entry sigil
+        v.append(&mut SIGIL.into());
         // add in the operation
         v.append(&mut ScriptId::from(&self).into());
         match self {
@@ -218,8 +227,13 @@ impl<'a> TryDecodeFrom<'a> for Script {
     type Error = Error;
 
     fn try_decode_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), Self::Error> {
+        // decode the sigil
+        let (sigil, ptr) = Codec::try_decode_from(bytes)?;
+        if sigil != SIGIL {
+            return Err(ScriptError::MissingSigil.into());
+        }
         // decode the value id
-        let (id, ptr) = ScriptId::try_decode_from(bytes)?;
+        let (id, ptr) = ScriptId::try_decode_from(ptr)?;
         let (v, ptr) = match id {
             ScriptId::Bin => {
                 let (k, ptr) = Key::try_decode_from(ptr)?;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Key, Script, ScriptId};
+use crate::{Key, script::SIGIL, Script, ScriptId};
 use core::fmt;
 use multicid::Cid;
 use multiutil::{EncodedVarbytes, Varbytes};
@@ -132,7 +132,7 @@ impl<'de> Deserialize<'de> for Script {
         }
 
         if deserializer.is_human_readable() {
-            deserializer.deserialize_enum("script", VARIANTS, ScriptVisitor)
+            deserializer.deserialize_enum(SIGIL.as_str(), VARIANTS, ScriptVisitor)
         } else {
             let b: &'de [u8] = Deserialize::deserialize(deserializer)?;
             Ok(Self::try_from(b).map_err(|e| Error::custom(e.to_string()))?)

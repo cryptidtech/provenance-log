@@ -134,6 +134,11 @@ impl Key {
         let s = parts.join(&KEY_SEPARATOR.to_string());
         Self { parts, s }
     }
+
+    /// return the key as a &str
+    pub fn as_str(&self) -> &str {
+        self.s.as_str()
+    }
 }
 
 impl Default for Key {

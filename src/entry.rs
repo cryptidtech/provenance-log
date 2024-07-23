@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::EntryError, Error, Key, Lipmaa, Op, Script};
+use crate::{error::EntryError, Error, Key, Lipmaa, Op, Script, Value};
 use core::fmt;
 use multibase::Base;
 use multicid::{cid, Cid, EncodedCid, Vlad};
@@ -14,6 +14,19 @@ pub const SIGIL: Codec = Codec::ProvenanceLogEntry;
 
 /// the current version of provenance entries this supports
 pub const ENTRY_VERSION: u64 = 1;
+
+/// the list of keys for the fields in an entry
+pub const ENTRY_FIELDS: &[&'static str] = &[
+    "/entry/",
+    "/entry/verions",
+    "/entry/vlad",
+    "/entry/prev",
+    "/entry/lipmaa",
+    "/entry/seqno",
+    "/entry/ops",
+    "/entry/unlock",
+    "/entry/proof",
+];
 
 /// a base encoded provenance entry
 pub type EncodedEntry = BaseEncoded<Entry>;
@@ -89,32 +102,20 @@ impl EncodingInfo for Entry {
 
 impl wacc::Pairs for Entry {
     fn get(&self, key: &str) -> Option<wacc::Value> {
-        let value = match key {
-            "/entry/" => {
-                let mut e = self.clone();
-                e.proof = Vec::default();
-                Some(wacc::Value::Bin(e.into()))
-            }
-            "/entry/version" => Some(wacc::Value::Bin(Varuint(self.version).into())),
-            "/entry/vlad" => Some(wacc::Value::Bin(self.vlad.clone().into())),
-            "/entry/prev" => Some(wacc::Value::Bin(self.prev.clone().into())),
-            "/entry/lipmaa" => Some(wacc::Value::Bin(self.lipmaa.clone().into())),
-            "/entry/seqno" => Some(wacc::Value::Bin(Varuint(self.seqno).into())),
-            "/entry/ops" => {
-                let mut v = Vec::new();
-                v.append(&mut Varuint(self.ops.len()).into());
-                self.ops
-                    .iter()
-                    .for_each(|op| v.append(&mut op.clone().into()));
-                Some(wacc::Value::Bin(v))
-            }
-            // TODO: make this accessible via an iterator
-            //"/entry/locks" => Some(wacc::Value::Bin(self.locks.clone().into())),
-            "/entry/unlock" => Some(wacc::Value::Bin(self.unlock.clone().into())),
-            "/entry/proof" => Some(wacc::Value::Bin(self.proof.clone())),
-            _ => None,
+        let key = match Key::try_from(key) {
+            Ok(key) => key,
+            Err(_) => return None,
         };
-        value
+        match self.get_value(&key) {
+            Some(value) => {
+                match value {
+                    Value::Data(data) => Some(wacc::Value::Bin(data)),
+                    Value::Str(s) => Some(wacc::Value::Str(s)),
+                    Value::Nil => None,
+                }
+            },
+            None => None,
+        }
     }
 
     fn put(&mut self, _key: &str, _value: &wacc::Value) -> Option<wacc::Value> {
@@ -269,7 +270,69 @@ impl Default for Entry {
     }
 }
 
+struct Iter<'a> {
+    iter: std::slice::Iter<'static, &'static str>,
+    entry: &'a Entry,
+}
+
+impl Iterator for Iter<'_> {
+    type Item = (Key, Value);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next() {
+            Some(k) => {
+                let key = match Key::try_from(*k) {
+                    Ok(key) => key,
+                    Err(_) => return None,
+                };
+                match self.entry.get_value(&key) {
+                    Some(value) => Some((key, value)),
+                    None => None,
+                }
+            }
+            None => None
+        }
+    }
+}
+
 impl Entry {
+    /// get an iterator over the keys and values
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (Key, Value)> + 'a {
+        Iter {
+            iter: ENTRY_FIELDS.iter(),
+            entry: &self
+        }
+    }
+
+    /// get the Entry's values by Key
+    pub fn get_value(&self, key: &Key) -> Option<Value> {
+        match key.as_str() {
+            "/entry/" => {
+                let mut e = self.clone();
+                e.proof = Vec::default();
+                Some(Value::Data(e.into()))
+            }
+            "/entry/version" => Some(Value::Data(Varuint(self.version).into())),
+            "/entry/vlad" => Some(Value::Data(self.vlad.clone().into())),
+            "/entry/prev" => Some(Value::Data(self.prev.clone().into())),
+            "/entry/lipmaa" => Some(Value::Data(self.lipmaa.clone().into())),
+            "/entry/seqno" => Some(Value::Data(Varuint(self.seqno).into())),
+            "/entry/ops" => {
+                let mut v = Vec::new();
+                v.append(&mut Varuint(self.ops.len()).into());
+                self.ops
+                    .iter()
+                    .for_each(|op| v.append(&mut op.clone().into()));
+                Some(Value::Data(v))
+            }
+            // TODO: make this accessible via an iterator
+            //"/entry/locks" => Some(Value::Data(self.locks.clone().into())),
+            "/entry/unlock" => Some(Value::Data(self.unlock.clone().into())),
+            "/entry/proof" => Some(Value::Data(self.proof.clone())),
+            _ => None,
+        }
+    }
+
     /// Get the cid of the previous entry if there is one
     pub fn prev(&self) -> Cid {
         self.prev.clone()
@@ -575,6 +638,31 @@ mod tests {
             assert_eq!(Op::default(), op.clone());
         }
         assert_eq!(format!("{}", entry2.context()), "/".to_string());
+    }
+
+    #[test]
+    fn test_entry_iter() {
+        let vlad = Vlad::default();
+        let script = Script::default();
+        let op = Op::default();
+        let entry = Builder::default()
+            .with_vlad(&vlad)
+            .with_unlock(&script)
+            .add_op(&op)
+            .add_op(&op)
+            .add_op(&op)
+            .try_build(|_| Ok(Vec::default()))
+            .unwrap();
+
+        assert_eq!(entry.seqno(), 0);
+        for op in entry.ops() {
+            assert_eq!(Op::default(), op.clone());
+        }
+        assert_eq!(format!("{}", entry.context()), "/".to_string());
+
+        for (key, _value) in entry.iter() {
+            assert!(ENTRY_FIELDS.contains(&key.as_str()));
+        }
     }
 
     #[test]

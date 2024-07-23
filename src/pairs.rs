@@ -71,6 +71,11 @@ impl<'a> fmt::Display for Kvp<'a> {
 }
 
 impl<'a> Kvp<'a> {
+    /// get an iterator over the keys and values
+    pub fn iter(&self) -> impl Iterator<Item = (&Key, &Value)> {
+        self.kvp.iter()
+    }
+
     /// sets the entry to look for values in as well
     pub fn set_entry(&mut self, entry: &'a Entry) -> Result<Option<u64>, Error> {
         match self.entry {
