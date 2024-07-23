@@ -13,7 +13,7 @@ impl Stack for Stk {
     /// push a value onto the stack
     fn push(&mut self, value: Value) {
         info!("push: {:?}", &value);
-        info!(println!("{:?}", &self));
+        info!("{:?}", &self);
         self.stack.push(value);
     }
 
@@ -23,7 +23,7 @@ impl Stack for Stk {
             Some(v) => info!("pop: {:?}", &v),
             None => info!("pop from empty stack"),
         }
-        info!(println!("{:?}", &self));
+        info!("{:?}", &self);
         self.stack.pop()
     }
 
@@ -141,6 +141,6 @@ mod tests {
         s.push(2.into());
         assert_eq!(s.len(), 2);
         println!("{:?}", s);
-        assert_eq!(format!("{:?}", s), "╭────────────╮\n top → │ Success(2) │\n       ├────────────┤\n       │ Success(1) │\n       ├────────────┤\n       ┆            ┆".to_string());
+        assert_eq!(format!("{:?}", s), "       ╭────────────╮\n top → │ Success(2) │\n       ├────────────┤\n       │ Success(1) │\n       ├────────────┤\n       ┆            ┆".to_string());
     }
 }
