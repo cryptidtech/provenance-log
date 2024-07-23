@@ -734,7 +734,7 @@ pushes the serialized entry, the ephemeral signature over the entry as well as
 the plog's VLAD value. This puts the parameter stack into the following state:
 
 ```
-      ┌──────────────────┐
+      ╭──────────────────╮
 top → │ <"/entry/vlad">  │ ← child vlad
       ├──────────────────┤
       │ <"/entry/proof"> │ ← digital signature

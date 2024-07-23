@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
+use log::info;
 use std::fmt;
 use wacc::{Stack, vm::Value};
 
@@ -11,11 +12,18 @@ pub struct Stk {
 impl Stack for Stk {
     /// push a value onto the stack
     fn push(&mut self, value: Value) {
+        info!("push: {:?}", &value);
+        info!(println!("{:?}", &self));
         self.stack.push(value);
     }
 
     /// remove the last top value from the stack
     fn pop(&mut self) -> Option<Value> {
+        match self.top() {
+            Some(v) => info!("pop: {:?}", &v),
+            None => info!("pop from empty stack"),
+        }
+        info!(println!("{:?}", &self));
         self.stack.pop()
     }
 
@@ -45,11 +53,26 @@ impl Stack for Stk {
 
 impl fmt::Debug for Stk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut s = "stack:\n".to_string();
-        s.push_str("\t top --\n");
-        for v in self.stack.iter().rev() {
-            s.push_str(format!("\t\t{}\n\t     --\n", v).as_str());
-        }
+        let mut max_len = 0;
+        let values = self.stack.iter().rev().map(|v| {
+            let s = format!("{:?}", v);
+            if s.len() > max_len {
+                max_len = s.len()
+            }
+            s
+        }).collect::<Vec<String>>();
+        let mut first = true;
+        let mut s = format!("       ╭─{:─<max_len$}─╮\n", "─");
+        values.iter().for_each(|l| {
+            if first {
+                s += format!(" top → │ {} │\n", l).as_str();
+                first = false;
+            } else {
+                s += format!("       │ {} │\n", l).as_str();
+            }
+            s += format!("       ├─{:─<max_len$}─┤\n", "─").as_str();
+        });
+        s += format!("       ┆ {:<max_len$} ┆", " ").as_str();
         f.write_str(&s)
     }
 }
@@ -118,6 +141,6 @@ mod tests {
         s.push(2.into());
         assert_eq!(s.len(), 2);
         println!("{:?}", s);
-        assert_eq!(format!("{:?}", s), "stack:\n\t top --\n\t\tSuccess(2)\n\t     --\n\t\tSuccess(1)\n\t     --\n".to_string());
+        assert_eq!(format!("{:?}", s), "╭────────────╮\n top → │ Success(2) │\n       ├────────────┤\n       │ Success(1) │\n       ├────────────┤\n       ┆            ┆".to_string());
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "provenance-log"
-version = "1.0.15"
+version = "1.0.16"
 authors = ["Dave Grantham <dwg@linuxprogrammer.org>"]
 edition = "2021"
 description = "Programmable cryptographic provenance logs"
@@ -14,6 +14,7 @@ default = ["serde"]
 dag_cbor = ["serde_cbor", "serde_cbor/tags", "multicid/dag_cbor"]
 
 [dependencies]
+log = "0.4.22"
 multibase = { version = "1.0", git = "https://github.com/cryptidtech/rust-multibase.git" }
 multicid = { version = "1.0", git = "https://github.com/cryptidtech/multicid.git" }
 multicodec = { version = "1.0", git = "https://github.com/cryptidtech/rust-multicodec.git" }
