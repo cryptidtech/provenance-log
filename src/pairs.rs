@@ -23,9 +23,9 @@ impl<'a> wacc::Pairs for Kvp<'a> {
         match self.kvp.get(&k) {
             Some(ref v) => {
                 match v {
-                    Value::Nil => Some(wacc::Value::Bin(Vec::default())),
-                    Value::Str(ref s) => Some(wacc::Value::Str(s.clone())),
-                    Value::Data(ref v) => Some(wacc::Value::Bin(v.clone())),
+                    Value::Nil => Some(wacc::Value::Bin { hint: key.to_string(), data: Vec::default() }),
+                    Value::Str(ref s) => Some(wacc::Value::Str { hint: key.to_string(), data: s.clone() }),
+                    Value::Data(ref v) => Some(wacc::Value::Bin { hint: key.to_string(), data: v.clone() }),
                 }
             }
             None => {
@@ -44,14 +44,14 @@ impl<'a> wacc::Pairs for Kvp<'a> {
             _ => return None
         };
         let v = match value {
-            wacc::Value::Str(ref s) => Value::Str(s.clone()),
-            wacc::Value::Bin(ref v) => Value::Data(v.clone()),
+            wacc::Value::Str { hint: _, data: ref s } => Value::Str(s.clone()),
+            wacc::Value::Bin { hint: _, data: ref v } => Value::Data(v.clone()),
             _ => return None
         };
         match self.kvp.insert(k, v) {
-            Some(Value::Nil) => Some(wacc::Value::Bin(Vec::default())),
-            Some(Value::Str(s)) => Some(wacc::Value::Str(s)),
-            Some(Value::Data(v)) => Some(wacc::Value::Bin(v)),
+            Some(Value::Nil) => Some(wacc::Value::Bin { hint: key.to_string(), data: Vec::default() }),
+            Some(Value::Str(s)) => Some(wacc::Value::Str { hint: key.to_string(), data: s }),
+            Some(Value::Data(v)) => Some(wacc::Value::Bin { hint: key.to_string(), data: v }),
             None => None
         }
     }

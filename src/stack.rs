@@ -86,7 +86,7 @@ mod tests {
         let mut s = Stk::default();
         s.push(b"foo".to_vec().into());
         assert_eq!(s.len(), 1);
-        assert_eq!(s.top(), Some(Value::Bin(b"foo".to_vec())));
+        assert_eq!(s.top(), Some(Value::Bin { hint: "".to_string(), data: b"foo".to_vec() }));
     }
 
     #[test]
@@ -94,7 +94,7 @@ mod tests {
         let mut s = Stk::default();
         s.push("foo".to_string().into());
         assert_eq!(s.len(), 1);
-        assert_eq!(s.top(), Some(Value::Str("foo".to_string())));
+        assert_eq!(s.top(), Some(Value::Str { hint: "".to_string(), data: "foo".to_string() }));
     }
 
     #[test]

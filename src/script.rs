@@ -116,15 +116,15 @@ impl fmt::Debug for ScriptId {
     }
 }
 
-/// A Script is either a printable string or a binary blob. These are the values
+/// A Script is either a binary blob, printable code, or a CID reference. These are the values
 /// stored in the virtual namespace of the log.
 #[derive(Clone, Eq, PartialEq)]
 pub enum Script {
-    /// An empty value
+    /// A binary code value
     Bin(Key, Vec<u8>),
-    /// A printable string value
+    /// A printable code value
     Code(Key, String),
-    /// A binary blob value
+    /// A CID reference to the script
     Cid(Key, Cid),
 }
 

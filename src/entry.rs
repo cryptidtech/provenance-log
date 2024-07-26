@@ -109,8 +109,8 @@ impl wacc::Pairs for Entry {
         match self.get_value(&key) {
             Some(value) => {
                 match value {
-                    Value::Data(data) => Some(wacc::Value::Bin(data)),
-                    Value::Str(s) => Some(wacc::Value::Str(s)),
+                    Value::Data(data) => Some(wacc::Value::Bin{ hint: key.to_string(), data: data }),
+                    Value::Str(s) => Some(wacc::Value::Str{ hint: key.to_string(), data: s }),
                     Value::Nil => None,
                 }
             },
