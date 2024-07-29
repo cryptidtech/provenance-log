@@ -13,20 +13,23 @@ impl Stack for Stk {
     /// push a value onto the stack
     fn push(&mut self, value: Value) {
         info!(" push: {:?}", &value);
-        info!("stack:\n{:?}", &self);
         self.stack.push(value);
+        info!("stack:\n{:?}", &self);
     }
 
     /// remove the last top value from the stack
     fn pop(&mut self) -> Option<Value> {
-        match self.top() {
-            Some(v) => {
+        match self.stack.pop() {
+            ref r @ Some(ref v) => {
                 info!("  pop: {:?}", &v);
                 info!("stack:\n{:?}", &self);
+                r.clone()
             }
-            None => info!("pop from empty stack"),
+            None => {
+                info!("pop from empty stack");
+                None
+            }
         }
-        self.stack.pop()
     }
 
     /// get a reference to the top value on the stack 
@@ -103,7 +106,6 @@ mod tests {
         s.push(b"foo".to_vec().into());
         s.push("bar".to_string().into());
         s.push(Value::Failure("bad".to_string()));
-        info!("\n{:?}", &s);
     }
 
     #[test]
@@ -112,9 +114,7 @@ mod tests {
         s.push(b"foo".to_vec().into());
         s.push("bar".to_string().into());
         s.push(Value::Failure("bad".to_string()));
-        info!("stack:\n{:?}", &s);
         let _ = s.pop();
-        info!("stack:\n{:?}", &s);
     }
 
     #[test]
