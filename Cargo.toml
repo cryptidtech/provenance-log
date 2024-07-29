@@ -1,6 +1,6 @@
 [package]
 name = "provenance-log"
-version = "1.0.20"
+version = "1.0.21"
 authors = ["Dave Grantham <dwg@linuxprogrammer.org>"]
 edition = "2021"
 description = "Programmable cryptographic provenance logs"
@@ -26,6 +26,7 @@ multiutil = { version = "1.0", git = "https://github.com/cryptidtech/multiutil.g
 rand = "0.8"
 serde = { version = "1.0", default-features = false, features = ["alloc", "derive"], optional = true }
 serde_cbor = { version = "0.11", optional = true }
+test-log = "0.2.16"
 thiserror = "1.0"
 wacc = { version = "1.0", git = "ssh://git@github.com/cryptidtech/wacc.git" }
 
