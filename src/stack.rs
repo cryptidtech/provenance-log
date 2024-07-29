@@ -13,7 +13,9 @@ impl Stack for Stk {
     /// push a value onto the stack
     fn push(&mut self, value: Value) {
         info!("push: {:?}", &value);
-        info!("{:?}", &self);
+        for s in format!("{:?}", &self).split('\n') {
+            info!("{}", &s);
+        }
         self.stack.push(value);
     }
 
@@ -23,7 +25,9 @@ impl Stack for Stk {
             Some(v) => info!("pop: {:?}", &v),
             None => info!("pop from empty stack"),
         }
-        info!("{:?}", &self);
+        for s in format!("{:?}", &self).split('\n') {
+            info!("{}", &s);
+        }
         self.stack.pop()
     }
 
