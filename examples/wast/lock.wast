@@ -15,9 +15,9 @@
     ;; │        ┆         │
     ;; ┆                  ┆
 
-    ;; check_signature("/tpubkey")
+    ;; check_signature("/recovery")
     i32.const 0
-    i32.const 8
+    i32.const 9
     call $check_signature
 
     (if 
@@ -31,7 +31,7 @@
         ;; key signature as the proof 
 
         ;; check_signature("/pubkey")
-        i32.const 8
+        i32.const 9
         i32.const 7
         call $check_signature
 
@@ -46,7 +46,7 @@
             ;; primage reveal as the proof 
 
             ;; check_preimage("/hash")
-            i32.const 15
+            i32.const 16
             i32.const 5
             call $check_preimage
 
@@ -68,7 +68,7 @@
   ;; String constants for referenceing key-value pairs
   ;;
   ;;                    [NAME]            [IDX] [LEN]
-  (data (i32.const  0)  "/tpubkey" )   ;;    0     8
-  (data (i32.const  8)  "/pubkey"  )   ;;    8     7
-  (data (i32.const 15)  "/hash"    )   ;;   15     5
+  (data (i32.const  0)  "/recovery" )   ;;    0     9
+  (data (i32.const  9)  "/pubkey"  )   ;;    9     7
+  (data (i32.const 16)  "/hash"    )   ;;   16     5
 )
