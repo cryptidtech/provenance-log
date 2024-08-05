@@ -343,7 +343,7 @@ which order. Assume you have a key-path structure like the following:
 
 ```
 ─┬─ "/"
- ╰─┬─ "tpubkey"
+ ╰─┬─ "recovery"
    ├─ "pubkey"
    ├─ "hash"
    ╰─┬─ "delegated/"
@@ -476,7 +476,7 @@ signature or pubkey signature or preimage proof.
 #[no_mangle]
 pub fn move_every_zig() -> bool {
     // then check a possible threshold sig...
-    check_signature("/tpubkey") ||   // check_count++
+    check_signature("/recovery") ||   // check_count++
     // then check a possible pubkey sig...
     check_signature("/pubkey") || // check_count++
     // then the pre-image proof...
@@ -494,11 +494,11 @@ Because logical operations in Rust short circuit, in the example lock script
 above, the only time the `check_preimage` function will execute is if the
 `check_signature("/pubkey")` fails. The only time the
 `check_signature("/pubkey")` function will execute is if the
-`check_signature("/tpubkey")` function fails. If either `check_signature`
+`check_signature("/recovery")` function fails. If either `check_signature`
 functions fail, their only side-effect is to increment the check counter. Then
 if the `check_preimage` succeeds, the marker left on the stack will be
 `SUCCESS(2)`. If the `check_signature("/pubkey")` succeeds, the marker left on
-the stack will be `SUCCESS(1)`. If the `check_signature("/tpubkey")` succeeds,
+the stack will be `SUCCESS(1)`. If the `check_signature("/recovery")` succeeds,
 the marker left on the stack will be `SUCCESS(0)`. If there are two competing
 entries and one provides a valid signature and the other provides a valid
 preimage, the one with the valid signature takes precedence over the one with
@@ -525,7 +525,7 @@ In the example from above, let us assume we have the following:
 
 ```
 ─┬─ "/"
- ╰─┬─ "tpubkey"
+ ╰─┬─ "recovery"
    ├─ "pubkey"
    ├─ "hash"
    ╰─┬─ "delegated/"

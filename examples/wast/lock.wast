@@ -15,7 +15,7 @@
     ;; │        ┆         │
     ;; ┆                  ┆
 
-    ;; check_signature("/tpubkey")
+    ;; check_signature("/recovery")
     i32.const 0
     i32.const 8
     call $check_signature
@@ -68,7 +68,7 @@
   ;; String constants for referenceing key-value pairs
   ;;
   ;;                    [NAME]            [IDX] [LEN]
-  (data (i32.const  0)  "/tpubkey" )   ;;    0     8
+  (data (i32.const  0)  "/recovery" )   ;;    0     8
   (data (i32.const  8)  "/pubkey"  )   ;;    8     7
   (data (i32.const 15)  "/hash"    )   ;;   15     5
 )
