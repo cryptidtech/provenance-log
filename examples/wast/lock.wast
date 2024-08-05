@@ -17,7 +17,7 @@
 
     ;; check_signature("/recovery")
     i32.const 0
-    i32.const 9
+    i32.const 8
     call $check_signature
 
     (if 
@@ -68,7 +68,7 @@
   ;; String constants for referenceing key-value pairs
   ;;
   ;;                    [NAME]            [IDX] [LEN]
-  (data (i32.const  0)  "/recovery" )   ;;    0     9
-  (data (i32.const  9)  "/pubkey"  )   ;;    9     7
-  (data (i32.const 16)  "/hash"    )   ;;   16     5
+  (data (i32.const  0)  "/recovery" )   ;;    0     8
+  (data (i32.const  8)  "/pubkey"  )   ;;    8     7
+  (data (i32.const 15)  "/hash"    )   ;;   15     5
 )
