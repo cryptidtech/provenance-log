@@ -100,6 +100,7 @@ impl<'a> Kvp<'a> {
         self.entry = Some(entry);
         Ok(self.seqno())
     }
+
     /// function for processing the operatios in a given entry and updating the
     /// state of the key-value pair store.
     pub fn apply_entry_ops(&mut self, entry: &'a Entry) -> Result<(), Error> {

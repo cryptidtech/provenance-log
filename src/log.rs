@@ -198,6 +198,7 @@ impl<'a> Iterator for VerifyIter<'a> {
     type Item = Result<(usize, Entry, Kvp<'a>), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        println!("iter::next({})", self.seqno);
         let entry = match self.entries.get(self.seqno) {
             Some(e) => *e,
             None => return None,
@@ -224,7 +225,8 @@ impl<'a> Iterator for VerifyIter<'a> {
             // run the unlock script using the entry as the kvp to get the
             // stack in the vm::Context set up.
             let unlock_ctx = vm::Context {
-                pairs: entry,           // limit the available data to just the entry
+                current: entry,           // limit the available data to just the entry
+                proposed: entry,          // limit the available data to just the entry
                 pstack: &mut pstack,
                 rstack: &mut rstack,
                 check_count: 0,
@@ -250,6 +252,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                     return Some(Err(self.error.clone().unwrap()));
                 }
             };
+            print!("running unlock script from seqno: {}...", self.seqno);
 
             // run the unlock script
             if let Some(e) = instance.run("for_great_justice").err() {
@@ -259,8 +262,15 @@ impl<'a> Iterator for VerifyIter<'a> {
                 return Some(Err(self.error.clone().unwrap()));
             }
 
+            println!("SUCCEEDED!");
+
             true
         };
+
+        println!("values:");
+        println!("{:?}", pstack.clone());
+        println!("return:");
+        println!("{:?}", rstack.clone());
 
         if !result {
             // set our index out of range
@@ -272,6 +282,7 @@ impl<'a> Iterator for VerifyIter<'a> {
             return Some(Err(self.error.clone().unwrap()));
         }
 
+        /*
         // set the entry to look into for proof and message values
         if let Some(e) = self.kvp.set_entry(entry).err() {
             // set our index out of range
@@ -279,10 +290,12 @@ impl<'a> Iterator for VerifyIter<'a> {
             self.error = Some(LogError::KvpSetEntryFailed(e.to_string()).into());
             return Some(Err(self.error.clone().unwrap()));
         }
+        */
 
-        // if this is the first entry, then we also need to apply the
+        // if this is the first entry, then we need to apply the
         // mutation ops
         if self.seqno == 0 {
+            println!("applying kvp ops for seqno 0");
             if let Some(e) = self.kvp.apply_entry_ops(&entry).err() {
                 // set our index out of range
                 self.seqno = self.entries.len();
@@ -308,13 +321,14 @@ impl<'a> Iterator for VerifyIter<'a> {
         // run each of the lock scripts
         for lock in locks {
             // NOTE: clone the kvp and stacks each time
-            let mut lock_kvp = self.kvp.clone();
+            let lock_kvp = self.kvp.clone();
             let mut lock_pstack = pstack.clone();
             let mut lock_rstack = rstack.clone();
 
             {
                 let lock_ctx = vm::Context {
-                    pairs: &mut lock_kvp,
+                    current: &lock_kvp,
+                    proposed: entry,
                     pstack: &mut lock_pstack,
                     rstack: &mut lock_rstack,
                     check_count: 0,
@@ -340,6 +354,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                         return Some(Err(self.error.clone().unwrap()));
                     }
                 };
+                print!("running lock script from seqno: {}...", self.seqno);
 
                 // run the unlock script
                 if let Some(e) = instance.run("move_every_zig").err() {
@@ -348,6 +363,8 @@ impl<'a> Iterator for VerifyIter<'a> {
                     self.error = Some(LogError::Wacc(e).into());
                     return Some(Err(self.error.clone().unwrap()));
                 }
+
+                println!("SUCCEEDED!");
             }
 
             // break out of this loop as soon as a lock script succeeds
@@ -589,11 +606,11 @@ mod tests {
     #[test]
     fn test_builder() {
         let ephemeral = EncodedMultikey::try_from(
-            "zF3WX3Dwnv7jv2nPfYL6e2XaLdNyaiwkPyzEtgw65d872KYG22jezzuYPtrds8WSJ3Sv8SCA",
+            "fba2480260874657374206b6579010120cbd87095dc5863fcec46a66a1d4040a73cb329f92615e165096bd50541ee71c0"
         )
         .unwrap();
         let key = EncodedMultikey::try_from(
-            "zF3WX3Dwnv7jv2nPfYL6e2XaLdNyfeuKuXMPzh4bk7jXP5cmP5woZkUvVz8GGpAEQtqEK1yx",
+            "fba2480260874657374206b6579010120d784f92e18bdba433b8b0f6cbf140bc9629ff607a59997357b40d22c3883a3b8"
         )
         .unwrap();
 
@@ -666,19 +683,19 @@ mod tests {
     #[test]
     fn test_entry_iterator() {
         let ephemeral = EncodedMultikey::try_from(
-            "zF3WX3Dwnv7jv2nPfYL6e2XaLdNyaiwkPyzEtgw65d872KYG22jezzuYPtrds8WSJ3Sv8SCA",
+            "fba2480260874657374206b6579010120cbd87095dc5863fcec46a66a1d4040a73cb329f92615e165096bd50541ee71c0"
         )
         .unwrap();
         let key1 = EncodedMultikey::try_from(
-            "zF3WX3Dwnv7jv2nPfYL6e2XaLdNyfeuKuXMPzh4bk7jXP5cmP5woZkUvVz8GGpAEQtqEK1yx",
+            "fba2480260874657374206b6579010120d784f92e18bdba433b8b0f6cbf140bc9629ff607a59997357b40d22c3883a3b8"
         )
         .unwrap();
         let key2 = EncodedMultikey::try_from(
-            "zVCYiTqf3RfiqqE4RxExy9wNL5MoFGzSGgBNqQRAMhX6t43UCRx3kxBL5Lf47tifh",
+            "fba2480260874657374206b65790101203f4c94407de791e53b4df12ef1d5534d1b19ff2ccfccba4ccc4722b6e5e8ea07"
         )
         .unwrap();
         let key3 = EncodedMultikey::try_from(
-            "zVCf3r3QpMWktTrCdJyRyAoCLd5sYWabKFMoj242TdbX2mvsEDnFWnSDznbZcSYLE",
+            "fba2480260874657374206b6579010120518e3ea918b1168d29ca7e75b0ca84be1ad6edf593a47828894a5f1b94a83bd4"
         )
         .unwrap();
 

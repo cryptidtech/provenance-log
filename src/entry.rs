@@ -906,7 +906,8 @@ mod tests {
                 op.clone()
             );
         }
-        assert_eq!(entry.proof, hex::decode("073b20d15c4fb2911ae1337f102bcaf4c0088d36345b88b243968e834c5ffa17907832017114405792dad96085b6076b8e4e63b578c90d0336bcaadef4f24704df866149526a1e6d23f89e218ad3f6172a7e26e6e37a3dea728e5f232e41696ad286bcca9201be").unwrap());
+        //println!("preimage entry: {}", hex::encode(&entry.proof));
+        assert_eq!(entry.proof, hex::decode("8724bb2420d15c4fb2911ae1337f102bcaf4c0088d36345b88b243968e834c5ffa17907832017114405792dad96085b6076b8e4e63b578c90d0336bcaadef4f24704df866149526a1e6d23f89e218ad3f6172a7e26e6e37a3dea728e5f232e41696ad286bcca9201be").unwrap());
         assert_eq!(format!("{}", entry.context()), "/".to_string());
     }
 }
