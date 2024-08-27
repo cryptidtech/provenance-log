@@ -13,9 +13,9 @@
     ;; │        ┆         │
     ;; ┆                  ┆
 
-    ;; check_signature("/tpubkey", "/entry/")
+    ;; check_signature("/recovery", "/entry/")
     i32.const 7
-    i32.const 8
+    i32.const 9
     i32.const 0
     i32.const 7
     call $check_signature
@@ -31,7 +31,7 @@
         ;; key signature as the proof 
 
         ;; check_signature("/pubkey", "/entry/")
-        i32.const 15
+        i32.const 16
         i32.const 7
         i32.const 0
         i32.const 7
@@ -48,7 +48,7 @@
             ;; primage reveal as the proof 
 
             ;; check_preimage("/hash")
-            i32.const 22
+            i32.const 23
             i32.const 5
             call $check_preimage
 
@@ -71,7 +71,7 @@
   ;;
   ;;                    [NAME]            [IDX] [LEN]
   (data (i32.const  0)  "/entry/"  )   ;;    0     7
-  (data (i32.const  7)  "/tpubkey" )   ;;    7     8
-  (data (i32.const 15)  "/pubkey"  )   ;;   15     7
-  (data (i32.const 22)  "/hash"    )   ;;   22     5
+  (data (i32.const  7)  "/recovery")   ;;    7     9
+  (data (i32.const 16)  "/pubkey"  )   ;;   16     7
+  (data (i32.const 23)  "/hash"    )   ;;   23     5
 )
