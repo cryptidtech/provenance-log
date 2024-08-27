@@ -198,7 +198,7 @@ impl<'a> Iterator for VerifyIter<'a> {
     type Item = Result<(usize, Entry, Kvp<'a>), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        println!("iter::next({})", self.seqno);
+        //println!("iter::next({})", self.seqno);
         let entry = match self.entries.get(self.seqno) {
             Some(e) => *e,
             None => return None,
@@ -252,7 +252,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                     return Some(Err(self.error.clone().unwrap()));
                 }
             };
-            print!("running unlock script from seqno: {}...", self.seqno);
+            //print!("running unlock script from seqno: {}...", self.seqno);
 
             // run the unlock script
             if let Some(e) = instance.run("for_great_justice").err() {
@@ -262,15 +262,17 @@ impl<'a> Iterator for VerifyIter<'a> {
                 return Some(Err(self.error.clone().unwrap()));
             }
 
-            println!("SUCCEEDED!");
+            //println!("SUCCEEDED!");
 
             true
         };
 
+        /*
         println!("values:");
         println!("{:?}", pstack.clone());
         println!("return:");
         println!("{:?}", rstack.clone());
+        */
 
         if !result {
             // set our index out of range
@@ -295,7 +297,7 @@ impl<'a> Iterator for VerifyIter<'a> {
         // if this is the first entry, then we need to apply the
         // mutation ops
         if self.seqno == 0 {
-            println!("applying kvp ops for seqno 0");
+            //println!("applying kvp ops for seqno 0");
             if let Some(e) = self.kvp.apply_entry_ops(&entry).err() {
                 // set our index out of range
                 self.seqno = self.entries.len();
@@ -354,7 +356,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                         return Some(Err(self.error.clone().unwrap()));
                     }
                 };
-                print!("running lock script from seqno: {}...", self.seqno);
+                //print!("running lock script from seqno: {}...", self.seqno);
 
                 // run the unlock script
                 if let Some(e) = instance.run("move_every_zig").err() {
@@ -364,7 +366,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                     return Some(Err(self.error.clone().unwrap()));
                 }
 
-                println!("SUCCEEDED!");
+                //println!("SUCCEEDED!");
             }
 
             // break out of this loop as soon as a lock script succeeds
