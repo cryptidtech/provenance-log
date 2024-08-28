@@ -112,11 +112,7 @@ impl<'a> Kvp<'a> {
 
     /// get the seqno of the current entry if there is one
     pub fn seqno(&self) -> Option<u64> {
-        if let Some(entry) = self.entry {
-            Some(entry.seqno)
-        } else {
-            None
-        }
+        self.entry.map(|entry| entry.seqno)
     }
 
     /// function to undo the last apply_entry
@@ -133,7 +129,7 @@ impl<'a> Kvp<'a> {
 
     /// function to take a state snapshot and push it onto the undo stack
     pub(crate) fn snapshot(&mut self) {
-        self.undo.push((self.entry.clone(), self.kvp.clone()));
+        self.undo.push((self.entry, self.kvp.clone()));
     }
 
     /// function to add the op mutations to the kvp
@@ -157,6 +153,11 @@ impl<'a> Kvp<'a> {
     /// returns the number of key-value pairs in the virtual store
     pub fn len(&self) -> usize {
         self.kvp.len()
+    }
+
+    /// returns if the kvp is empty
+    pub fn is_empty(&self) -> bool {
+        self.kvp.is_empty()
     }
 
     /// returns the number of entries in the undo sctack

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-//!
+//! provenance-log
 #![warn(missing_docs)]
 #![deny(
     trivial_casts,

@@ -34,9 +34,9 @@ impl ValueId {
     }
 }
 
-impl Into<u8> for ValueId {
-    fn into(self) -> u8 {
-        self as u8
+impl From<ValueId> for u8 {
+    fn from(val: ValueId) -> Self {
+        val as u8
     }
 }
 
@@ -63,9 +63,9 @@ impl TryFrom<u8> for ValueId {
     }
 }
 
-impl Into<Vec<u8>> for ValueId {
-    fn into(self) -> Vec<u8> {
-        let v: u8 = self.into();
+impl From<ValueId> for Vec<u8> {
+    fn from(val: ValueId) -> Self {
+        let v: u8 = val.into();
         v.encode_into()
     }
 }
@@ -142,19 +142,19 @@ impl AsRef<[u8]> for Value {
     }
 }
 
-impl Into<Vec<u8>> for Value {
-    fn into(self) -> Vec<u8> {
+impl From<Value> for Vec<u8> {
+    fn from(val: Value) -> Self {
         let mut v = Vec::default();
         // add in the operation
-        v.append(&mut ValueId::from(&self).into());
-        match self {
-            Self::Nil => v,
-            Self::Str(s) => {
+        v.append(&mut ValueId::from(&val).into());
+        match val {
+            Value::Nil => v,
+            Value::Str(s) => {
                 // add in the string
                 v.append(&mut Varbytes(s.as_bytes().to_vec()).into());
                 v
             }
-            Self::Data(b) => {
+            Value::Data(b) => {
                 // add in the data
                 v.append(&mut Varbytes(b.clone()).into());
                 v

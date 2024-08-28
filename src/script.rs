@@ -43,9 +43,9 @@ impl ScriptId {
     }
 }
 
-impl Into<u8> for ScriptId {
-    fn into(self) -> u8 {
-        self as u8
+impl From<ScriptId> for u8 {
+    fn from(val: ScriptId) -> Self {
+        val as u8
     }
 }
 
@@ -72,9 +72,9 @@ impl TryFrom<u8> for ScriptId {
     }
 }
 
-impl Into<Vec<u8>> for ScriptId {
-    fn into(self) -> Vec<u8> {
-        let v: u8 = self.into();
+impl From<ScriptId> for Vec<u8> {
+    fn from(val: ScriptId) -> Self {
+        let v: u8 = val.into();
         v.encode_into()
     }
 }
@@ -149,7 +149,7 @@ impl Ord for Script {
 impl PartialOrd for Script {
     /// partial ord for script 
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.path().partial_cmp(&other.path())
+        Some(self.path().cmp(&other.path()))
     }
 }
 
@@ -181,29 +181,29 @@ impl AsRef<[u8]> for Script {
     }
 }
 
-impl Into<Vec<u8>> for Script {
-    fn into(self) -> Vec<u8> {
+impl From<Script> for Vec<u8> {
+    fn from(val: Script) -> Self {
         let mut v = Vec::default();
         // add in the entry sigil
         v.append(&mut SIGIL.into());
         // add in the operation
-        v.append(&mut ScriptId::from(&self).into());
-        match self {
-            Self::Bin(p, b) => {
+        v.append(&mut ScriptId::from(&val).into());
+        match val {
+            Script::Bin(p, b) => {
                 // add in the path
                 v.append(&mut p.into());
                 // add in the compiled binary script
                 v.append(&mut Varbytes(b.clone()).into());
                 v
             }
-            Self::Code(p, s) => {
+            Script::Code(p, s) => {
                 // add in the path
                 v.append(&mut p.into());
                 // add in the uncompiled script
                 v.append(&mut Varbytes(s.as_bytes().to_vec()).into());
                 v
             }
-            Self::Cid(p, c) => {
+            Script::Cid(p, c) => {
                 // add in the path
                 v.append(&mut p.into());
                 // add in the cid

@@ -30,7 +30,7 @@ impl<'de> Deserialize<'de> for Script {
     where
         D: Deserializer<'de>,
     {
-        const VARIANTS: &'static [&'static str] = &["bin", "code", "cid"];
+        const VARIANTS: &[&str] = &["bin", "code", "cid"];
 
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]

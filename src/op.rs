@@ -32,9 +32,9 @@ impl OpId {
     }
 }
 
-impl Into<u8> for OpId {
-    fn into(self) -> u8 {
-        self as u8
+impl From<OpId> for u8 {
+    fn from(val: OpId) -> Self {
+        val as u8
     }
 }
 
@@ -61,9 +61,9 @@ impl TryFrom<u8> for OpId {
     }
 }
 
-impl Into<Vec<u8>> for OpId {
-    fn into(self) -> Vec<u8> {
-        let v: u8 = self.into();
+impl From<OpId> for Vec<u8> {
+    fn from(val: OpId) -> Self {
+        let v: u8 = val.into();
         v.encode_into()
     }
 }
@@ -133,23 +133,23 @@ impl Default for Op {
     }
 }
 
-impl Into<Vec<u8>> for Op {
-    fn into(self) -> Vec<u8> {
+impl From<Op> for Vec<u8> {
+    fn from(val: Op) -> Self {
         let mut v = Vec::default();
         // add in the operation
-        v.append(&mut OpId::from(&self).into());
-        match self {
-            Self::Noop(key) => {
+        v.append(&mut OpId::from(&val).into());
+        match val {
+            Op::Noop(key) => {
                 // add in the key string
                 v.append(&mut key.clone().into());
                 v
             }
-            Self::Delete(key) => {
+            Op::Delete(key) => {
                 // add in the key string
                 v.append(&mut key.clone().into());
                 v
             }
-            Self::Update(key, value) => {
+            Op::Update(key, value) => {
                 // add in the key string
                 v.append(&mut key.clone().into());
                 // add in the value data

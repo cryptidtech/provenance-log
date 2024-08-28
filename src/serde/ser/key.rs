@@ -10,7 +10,7 @@ impl ser::Serialize for Key {
         S: ser::Serializer,
     {
         if serializer.is_human_readable() {
-            serializer.serialize_str(&self.to_string())
+            serializer.serialize_str(self.as_ref())
         } else {
             Varbytes(self.clone().into()).serialize(serializer)
         }

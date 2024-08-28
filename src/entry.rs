@@ -16,7 +16,7 @@ pub const SIGIL: Codec = Codec::ProvenanceLogEntry;
 pub const ENTRY_VERSION: u64 = 1;
 
 /// the list of keys for the fields in an entry
-pub const ENTRY_FIELDS: &[&'static str] = &[
+pub const ENTRY_FIELDS: &[&str] = &[
     "/entry/",
     "/entry/verions",
     "/entry/vlad",
@@ -62,13 +62,7 @@ pub struct Entry {
 
 impl Ord for Entry {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.seqno == other.seqno {
-            Ordering::Equal
-        } else if self.seqno < other.seqno {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        }
+        self.seqno.cmp(&other.seqno)
     }
 }
 
@@ -109,7 +103,7 @@ impl wacc::Pairs for Entry {
         match self.get_value(&key) {
             Some(value) => {
                 match value {
-                    Value::Data(data) => Some(wacc::Value::Bin{ hint: key.to_string(), data: data }),
+                    Value::Data(data) => Some(wacc::Value::Bin{ hint: key.to_string(), data }),
                     Value::Str(s) => Some(wacc::Value::Str{ hint: key.to_string(), data: s }),
                     Value::Nil => None,
                 }
@@ -123,37 +117,37 @@ impl wacc::Pairs for Entry {
     }
 }
 
-impl Into<Vec<u8>> for Entry {
-    fn into(self) -> Vec<u8> {
+impl From<Entry> for Vec<u8> {
+    fn from(val: Entry) -> Self {
         let mut v = Vec::default();
         // add in the entry sigil
         v.append(&mut SIGIL.into());
         // add in the version
-        v.append(&mut Varuint(self.version).into());
+        v.append(&mut Varuint(val.version).into());
         // add in the vlad
-        v.append(&mut self.vlad.clone().into());
+        v.append(&mut val.vlad.clone().into());
         // add in the prev link
-        v.append(&mut self.prev.clone().into());
+        v.append(&mut val.prev.clone().into());
         // add in the lipmaa link
-        v.append(&mut self.lipmaa.clone().into());
+        v.append(&mut val.lipmaa.clone().into());
         // add in the seqno
-        v.append(&mut Varuint(self.seqno).into());
+        v.append(&mut Varuint(val.seqno).into());
         // add in the number of ops
-        v.append(&mut Varuint(self.ops.len()).into());
+        v.append(&mut Varuint(val.ops.len()).into());
         // add in the ops
-        self.ops
+        val.ops
             .iter()
             .for_each(|op| v.append(&mut op.clone().into()));
         // first add the number of keys
-        v.append(&mut Varuint(self.locks.len()).into());
+        v.append(&mut Varuint(val.locks.len()).into());
         // add in the locks
-        self.locks
+        val.locks
             .iter()
             .for_each(|script| v.append(&mut script.clone().into()));
         // add in the unlock script
-        v.append(&mut self.unlock.clone().into());
+        v.append(&mut val.unlock.clone().into());
         // add in the proof
-        v.append(&mut Varbytes(self.proof.clone()).into());
+        v.append(&mut Varbytes(val.proof.clone()).into());
         v
     }
 }
@@ -285,10 +279,7 @@ impl Iterator for Iter<'_> {
                     Ok(key) => key,
                     Err(_) => return None,
                 };
-                match self.entry.get_value(&key) {
-                    Some(value) => Some((key, value)),
-                    None => None,
-                }
+                self.entry.get_value(&key).map(|value| (key, value))
             }
             None => None
         }
@@ -297,10 +288,10 @@ impl Iterator for Iter<'_> {
 
 impl Entry {
     /// get an iterator over the keys and values
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (Key, Value)> + 'a {
+    pub fn iter(&self) -> impl Iterator<Item = (Key, Value)> + '_ {
         Iter {
             iter: ENTRY_FIELDS.iter(),
-            entry: &self
+            entry: self
         }
     }
 
@@ -375,7 +366,7 @@ impl Entry {
 
     /// get the longest common branch context from the ops
     pub fn context(&self) -> Key {
-        if self.ops.len() == 0 {
+        if self.ops.is_empty() {
             Key::default()
         } else {
             // get the first branch
@@ -393,9 +384,9 @@ impl Entry {
     /// validating this Entry. This goes through the mutation operations in this Event, looking at
     /// at the path for each op and building the valid set of lock scripts that govern all of teh
     /// branches and leaves that are modified in the set of mutation operations.
-    pub fn sort_locks(&self, locks: &Vec<Script>) -> Result<Vec<Script>, Error> {
+    pub fn sort_locks(&self, locks: &[Script]) -> Result<Vec<Script>, Error> {
         // the order of these lock scripts must be preservied in the final list of lock scripts
-        let locks_in = locks.clone();
+        let locks_in = locks.to_owned();
         // this is the set of lock scripts that govern all of the ops in the order established by
         // the lock array passed into this function
         let mut locks_tmp: Vec<Script> = Vec::default();
@@ -419,7 +410,7 @@ impl Entry {
                 // if the lock is a leaf, then parent_of is true if the op path is teh same
                 // if the lock is a branch, then parent_of is true if the other path is a child
                 // of the branch
-                if lock.path().parent_of(&op.path()) && !locks_tmp.contains(&lock) {
+                if lock.path().parent_of(&op.path()) && !locks_tmp.contains(lock) {
                     //println!("adding lock {} because of op {}", lock.path(), op.path());
                     locks_tmp.push(lock.clone());
                 }
@@ -431,7 +422,7 @@ impl Entry {
         // locks_out so that the order in locks_in is preserved
         let mut locks_out: Vec<Script> = Vec::default();
         for lock in &locks_in {
-            if locks_tmp.contains(&lock) && !locks_out.contains(lock) {
+            if locks_tmp.contains(lock) && !locks_out.contains(lock) {
                 locks_out.push(lock.clone());
             }
         }
@@ -512,8 +503,8 @@ impl Builder {
     }
 
     /// Set the ops
-    pub fn with_ops(mut self, ops: &Vec<Op>) -> Self {
-        self.ops = ops.clone();
+    pub fn with_ops(mut self, ops: &[Op]) -> Self {
+        ops.clone_into(&mut self.ops);
         self
     }
 
@@ -524,8 +515,8 @@ impl Builder {
     }
 
     /// Set the lock scripts
-    pub fn with_locks(mut self, locks: &Vec<Script>) -> Self {
-        self.locks = locks.clone();
+    pub fn with_locks(mut self, locks: &[Script]) -> Self {
+        locks.clone_into(&mut self.locks);
         self
     }
 
@@ -549,7 +540,7 @@ impl Builder {
     {
         let version = self.version;
         let vlad = self.vlad.clone().ok_or(EntryError::MissingVlad)?;
-        let prev = self.prev.clone().unwrap_or_else(|| Cid::null());
+        let prev = self.prev.clone().unwrap_or_else(Cid::null);
         let seqno = self.seqno.unwrap_or_default();
         let lipmaa = if seqno.is_lipmaa() {
             self.lipmaa.clone().ok_or(EntryError::MissingLipmaaLink)?

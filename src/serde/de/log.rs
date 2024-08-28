@@ -16,7 +16,7 @@ impl<'de> Deserialize<'de> for Log {
     where
         D: Deserializer<'de>,
     {
-        const FIELDS: &'static [&'static str] =
+        const FIELDS: &[&str] =
             &["version", "vlad", "first_lock", "foot", "head", "entries"];
 
         #[derive(Deserialize)]

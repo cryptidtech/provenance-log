@@ -29,7 +29,7 @@ impl<'de> Deserialize<'de> for Value {
     where
         D: Deserializer<'de>,
     {
-        const VARIANTS: &'static [&'static str] = &["nil", "str", "data"];
+        const VARIANTS: &[&str] = &["nil", "str", "data"];
 
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]

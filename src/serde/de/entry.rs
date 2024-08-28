@@ -14,7 +14,7 @@ impl<'de> Deserialize<'de> for Entry {
     where
         D: Deserializer<'de>,
     {
-        const FIELDS: &'static [&'static str] = &[
+        const FIELDS: &[&str] = &[
             "version", "vlad", "prev", "lipmaa", "seqno", "ops", "locks", "unlock", "proof",
         ];
 

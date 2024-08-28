@@ -63,25 +63,25 @@ impl EncodingInfo for Log {
     }
 }
 
-impl Into<Vec<u8>> for Log {
-    fn into(self) -> Vec<u8> {
+impl From<Log> for Vec<u8> {
+    fn from(val: Log) -> Self {
         let mut v = Vec::default();
         // add in the provenance log sigil
         v.append(&mut SIGIL.into());
         // add in the version
-        v.append(&mut Varuint(self.version).into());
+        v.append(&mut Varuint(val.version).into());
         // add in the vlad
-        v.append(&mut self.vlad.clone().into());
+        v.append(&mut val.vlad.clone().into());
         // add in the lock script for the first entry
-        v.append(&mut self.first_lock.clone().into());
+        v.append(&mut val.first_lock.clone().into());
         // add in the foot cid
-        v.append(&mut self.foot.clone().into());
+        v.append(&mut val.foot.clone().into());
         // add in the head cid
-        v.append(&mut self.head.clone().into());
+        v.append(&mut val.head.clone().into());
         // add in the entry count
-        v.append(&mut Varuint(self.entries.len()).into());
+        v.append(&mut Varuint(val.entries.len()).into());
         // add in the entries
-        self.entries.iter().for_each(|(cid, entry)| {
+        val.entries.iter().for_each(|(cid, entry)| {
             v.append(&mut cid.clone().into());
             v.append(&mut entry.clone().into());
         });
@@ -298,7 +298,7 @@ impl<'a> Iterator for VerifyIter<'a> {
         // mutation ops
         if self.seqno == 0 {
             //println!("applying kvp ops for seqno 0");
-            if let Some(e) = self.kvp.apply_entry_ops(&entry).err() {
+            if let Some(e) = self.kvp.apply_entry_ops(entry).err() {
                 // set our index out of range
                 self.seqno = self.entries.len();
                 self.error = Some(LogError::UpdateKvpFailed(e.to_string()).into());
@@ -382,12 +382,12 @@ impl<'a> Iterator for VerifyIter<'a> {
             }
         }
 
-        if result == true {
+        if result {
             // if the entry verifies, apply it's mutataions to the kvp
             // the 0th entry has already been applied at this point so no
             // need to do it here
             if self.seqno > 0 {
-                if let Some(e) = self.kvp.apply_entry_ops(&entry).err() {
+                if let Some(e) = self.kvp.apply_entry_ops(entry).err() {
                     // set our index out of range
                     self.seqno = self.entries.len();
                     self.error = Some(LogError::UpdateKvpFailed(e.to_string()).into());
@@ -395,7 +395,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                 }
             }
             // update the lock script to validate the next entry
-            self.lock_scripts = entry.locks.clone();
+            self.lock_scripts.clone_from(&entry.locks);
             // update the seqno
             self.prev_seqno = self.seqno;
             self.seqno += 1;
@@ -446,8 +446,8 @@ impl Log {
         let cid = entry.cid();
         let mut plog = self.clone();
         plog.entries.insert(cid.clone(), entry.clone());
-        let mut vi = plog.verify();
-        while let Some(ret) = vi.next() {
+        let vi = plog.verify();
+        for ret in vi {
             if let Some(e) = ret.err() {
                 return Err(LogError::VerifyFailed(e.to_string()).into());
             }
@@ -514,7 +514,7 @@ impl Builder {
         let cid = entry.cid();
         self.head = Some(cid.clone());
         // update the foot if this is the first entry
-        if self.entries.len() == 0 {
+        if self.entries.is_empty() {
             self.foot = Some(cid.clone());
         }
         self.entries.insert(cid.clone(), entry.clone());
@@ -524,15 +524,15 @@ impl Builder {
     /// Try to build the Log
     pub fn try_build(&self) -> Result<Log, Error> {
         let version = self.version;
-        let vlad = self.vlad.clone().ok_or_else(|| LogError::MissingVlad)?;
+        let vlad = self.vlad.clone().ok_or(LogError::MissingVlad)?;
         let first_lock = self
             .first_lock
             .clone()
-            .ok_or_else(|| LogError::MissingFirstEntryLockScript)?;
-        let foot = self.foot.clone().ok_or_else(|| LogError::MissingFoot)?;
-        let head = self.head.clone().ok_or_else(|| LogError::MissingHead)?;
+            .ok_or(LogError::MissingFirstEntryLockScript)?;
+        let foot = self.foot.clone().ok_or(LogError::MissingFoot)?;
+        let head = self.head.clone().ok_or(LogError::MissingHead)?;
         let entries = self.entries.clone();
-        if entries.len() == 0 {
+        if entries.is_empty() {
             return Err(LogError::MissingEntries.into());
         } else {
             // start at the head and walk the prev links to the foot to ensure

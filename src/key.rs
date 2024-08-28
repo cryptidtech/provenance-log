@@ -23,12 +23,12 @@ pub struct Key {
 impl Key {
     /// true if this key is a branch
     pub fn is_branch(&self) -> bool {
-        self.parts.last().unwrap().len() == 0
+        self.parts.last().unwrap().is_empty()
     }
 
     /// true if this key is a leaf
     pub fn is_leaf(&self) -> bool {
-        self.parts.last().unwrap().len() > 0
+        !self.parts.last().unwrap().is_empty()
     }
 
     /// add a key-path to us
@@ -53,9 +53,9 @@ impl Key {
             let mut self_parts = Vec::default();
             let mut itr = self.parts.iter();
             itr.next(); // skip the first ""
-            while let Some(p) = itr.next() {
+            for p in itr {
                 self_parts.push("/".to_string());
-                if p.len() > 0 {
+                if !p.is_empty() {
                     self_parts.push(p.clone());
                 }
             }
@@ -63,9 +63,9 @@ impl Key {
             let mut other_parts = Vec::default();
             let mut itr = other.parts.iter();
             itr.next(); // skip the first ""
-            while let Some(p) = itr.next() {
+            for p in itr {
                 other_parts.push("/".to_string());
-                if p.len() > 0 {
+                if !p.is_empty() {
                     other_parts.push(p.clone());
                 }
             }
@@ -89,9 +89,14 @@ impl Key {
         }
     }
 
+    /// return if the key has zero length
+    pub fn is_empty(&self) -> bool {
+        self.parts.is_empty()
+    }
+
     /// returns the branch part of the key
     pub fn branch(&self) -> Self {
-        if self.is_branch() || self.len() == 0 {
+        if self.is_branch() || self.is_empty() {
             self.clone()
         } else {
             let mut parts = self.parts.clone();
@@ -107,8 +112,8 @@ impl Key {
         let lhs = self.branch();
         let rhs = rhs.branch();
         let mut parts = Vec::default();
-        let mut itr = lhs.parts.iter().zip(rhs.parts.iter());
-        while let Some((l, r)) = itr.next() {
+        let itr = lhs.parts.iter().zip(rhs.parts.iter());
+        for (l, r) in itr {
             if l == r {
                 parts.push(l.clone());
             } else {
@@ -161,11 +166,11 @@ impl EncodingInfo for Key {
     }
 }
 
-impl Into<Vec<u8>> for Key {
-    fn into(self) -> Vec<u8> {
+impl From<Key> for Vec<u8> {
+    fn from(val: Key) -> Self {
         let mut v = Vec::default();
         // convert the path to a string and encode it as varbytes
-        v.append(&mut Varbytes(self.to_string().as_bytes().to_vec()).into());
+        v.append(&mut Varbytes(val.to_string().as_bytes().to_vec()).into());
         v
     }
 }
@@ -202,7 +207,7 @@ impl TryFrom<String> for Key {
     type Error = Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        if s.len() == 0 {
+        if s.is_empty() {
             return Err(KeyError::EmptyKey.into());
         }
         let filtered = {
