@@ -6,7 +6,7 @@ pub enum Error {
     /// Entry error
     #[error(transparent)]
     Entry(#[from] EntryError),
-    /// Key error 
+    /// Key error
     #[error(transparent)]
     Key(#[from] KeyError),
     /// Kvp error
@@ -83,7 +83,7 @@ pub enum EntryError {
 #[derive(Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum KeyError {
-    /// Empty key string 
+    /// Empty key string
     #[error("the key string is empty")]
     EmptyKey,
     /// Missing root key separator
@@ -120,6 +120,7 @@ pub enum KvpError {
 #[non_exhaustive]
 pub enum LogError {
     /// Wacc Error
+    #[cfg(not(feature = "rhai"))]
     #[error(transparent)]
     Wacc(#[from] wacc::Error),
     /// Missing sigil
@@ -164,6 +165,15 @@ pub enum LogError {
     /// Updating kvp failed
     #[error("Kvp set entry failed {0}")]
     KvpSetEntryFailed(String),
+    /// Wrong script format
+    #[error("Wrong script format")]
+    WrongScriptFormat,
+    /// Failed to run lock script
+    #[error("Failed to run unlock script")]
+    RunScriptFailed,
+    /// Catch all error, just a string
+    #[error("{0}")]
+    Anyhow(String),
 }
 
 /// Errors created by this library

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::OpError, Error, Key, Value};
+use crate::{error::OpError, Error, Key, LogValue};
 use core::fmt;
 use multitrait::{EncodeInto, TryDecodeFrom};
 
@@ -113,16 +113,16 @@ pub enum Op {
     /// delete the value associated with the key
     Delete(Key),
     /// update/create the key value pair
-    Update(Key, Value),
+    Update(Key, LogValue),
 }
 
 impl Op {
-    /// get the key in the op 
+    /// get the key in the op
     pub fn path(&self) -> Key {
         match self {
             Self::Noop(p) => p.clone(),
             Self::Delete(p) => p.clone(),
-            Self::Update(p, _) => p.clone()
+            Self::Update(p, _) => p.clone(),
         }
     }
 }
@@ -186,7 +186,7 @@ impl<'a> TryDecodeFrom<'a> for Op {
             }
             OpId::Update => {
                 let (key, ptr) = Key::try_decode_from(ptr)?;
-                let (value, ptr) = Value::try_decode_from(ptr)?;
+                let (value, ptr) = LogValue::try_decode_from(ptr)?;
                 (Self::Update(key, value), ptr)
             }
         };

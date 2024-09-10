@@ -1,33 +1,45 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::KvpError, Entry, Error, Key, Op, Value};
+use crate::{error::KvpError, Entry, Error, Key, LogValue, Op};
 use std::{collections::BTreeMap, fmt};
+
+#[cfg(feature = "rhai")]
+pub use comrade_core::{Pairs, Value};
+#[cfg(not(feature = "rhai"))]
+pub use wacc::{Pairs, Value};
 
 /// Kvp is the virtual key-value pair storage system that builds up the state
 /// encoded in provenance logs as time series of verifiable state changes.
 #[derive(Clone, Debug, Default)]
 pub struct Kvp<'a> {
     /// the key-value pair store itself
-    kvp: BTreeMap<Key, Value>,
-    /// the entry so we can expose it as part of the key-vale store
+    kvp: BTreeMap<Key, LogValue>,
+    /// the entry so we can expose it as part of the key-value store
     entry: Option<&'a Entry>,
     /// this stores state snapshots from just before applying an entry.
-    undo: Vec<(Option<&'a Entry>, BTreeMap<Key, Value>)>,
+    undo: Vec<(Option<&'a Entry>, BTreeMap<Key, LogValue>)>,
 }
 
-impl<'a> wacc::Pairs for Kvp<'a> {
-    fn get(&self, key: &str) -> Option<wacc::Value> {
+impl<'a> Pairs for Kvp<'a> {
+    fn get(&self, key: &str) -> Option<Value> {
         let k = match Key::try_from(key) {
             Ok(k) => k,
-            _ => return None
+            _ => return None,
         };
         match self.kvp.get(&k) {
-            Some(ref v) => {
-                match v {
-                    Value::Nil => Some(wacc::Value::Bin { hint: key.to_string(), data: Vec::default() }),
-                    Value::Str(ref s) => Some(wacc::Value::Str { hint: key.to_string(), data: s.clone() }),
-                    Value::Data(ref v) => Some(wacc::Value::Bin { hint: key.to_string(), data: v.clone() }),
-                }
-            }
+            Some(ref v) => match v {
+                LogValue::Nil => Some(Value::Bin {
+                    hint: key.to_string(),
+                    data: Vec::default(),
+                }),
+                LogValue::Str(ref s) => Some(Value::Str {
+                    hint: key.to_string(),
+                    data: s.clone(),
+                }),
+                LogValue::Data(ref v) => Some(Value::Bin {
+                    hint: key.to_string(),
+                    data: v.clone(),
+                }),
+            },
             None => {
                 if let Some(entry) = self.entry {
                     entry.get(key)
@@ -38,21 +50,36 @@ impl<'a> wacc::Pairs for Kvp<'a> {
         }
     }
 
-    fn put(&mut self, key: &str, value: &wacc::Value) -> Option<wacc::Value> {
+    fn put(&mut self, key: &str, value: &Value) -> Option<Value> {
         let k = match Key::try_from(key) {
             Ok(k) => k,
-            _ => return None
+            _ => return None,
         };
         let v = match value {
-            wacc::Value::Str { hint: _, data: ref s } => Value::Str(s.clone()),
-            wacc::Value::Bin { hint: _, data: ref v } => Value::Data(v.clone()),
-            _ => return None
+            Value::Str {
+                hint: _,
+                data: ref s,
+            } => LogValue::Str(s.clone()),
+            Value::Bin {
+                hint: _,
+                data: ref v,
+            } => LogValue::Data(v.clone()),
+            _ => return None,
         };
         match self.kvp.insert(k, v) {
-            Some(Value::Nil) => Some(wacc::Value::Bin { hint: key.to_string(), data: Vec::default() }),
-            Some(Value::Str(s)) => Some(wacc::Value::Str { hint: key.to_string(), data: s }),
-            Some(Value::Data(v)) => Some(wacc::Value::Bin { hint: key.to_string(), data: v }),
-            None => None
+            Some(LogValue::Nil) => Some(Value::Bin {
+                hint: key.to_string(),
+                data: Vec::default(),
+            }),
+            Some(LogValue::Str(s)) => Some(Value::Str {
+                hint: key.to_string(),
+                data: s,
+            }),
+            Some(LogValue::Data(v)) => Some(Value::Bin {
+                hint: key.to_string(),
+                data: v,
+            }),
+            None => None,
         }
     }
 }
@@ -61,9 +88,9 @@ impl<'a> fmt::Display for Kvp<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (k, v) in self.kvp.iter() {
             match v {
-                Value::Nil => writeln!(f, "'{}' -> nil", k)?,
-                Value::Str(s) => writeln!(f, "'{}' -> {}", k, s)?,
-                Value::Data(v) => writeln!(f, "'{}' -> data of length: {}", k, v.len())?,
+                LogValue::Nil => writeln!(f, "'{}' -> nil", k)?,
+                LogValue::Str(s) => writeln!(f, "'{}' -> {}", k, s)?,
+                LogValue::Data(v) => writeln!(f, "'{}' -> data of length: {}", k, v.len())?,
             }
         }
         write!(f, "")
@@ -72,7 +99,7 @@ impl<'a> fmt::Display for Kvp<'a> {
 
 impl<'a> Kvp<'a> {
     /// get an iterator over the keys and values
-    pub fn iter(&self) -> impl Iterator<Item = (&Key, &Value)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&Key, &LogValue)> {
         self.kvp.iter()
     }
 
@@ -101,7 +128,7 @@ impl<'a> Kvp<'a> {
         Ok(self.seqno())
     }
 
-    /// function for processing the operatios in a given entry and updating the
+    /// Process the operations in a given entry and update the
     /// state of the key-value pair store.
     pub fn apply_entry_ops(&mut self, entry: &'a Entry) -> Result<(), Error> {
         // insert the op mutations and record an undo snapshot with the current
@@ -223,21 +250,17 @@ mod tests {
             .with_unlock(&Script::default())
             .add_op(&Op::Update(
                 "/one".try_into().unwrap(),
-                Value::Str("foo".to_string()),
+                LogValue::Str("foo".to_string()),
             ))
-            .add_op(&Op::Noop(
-                "/foo".try_into().unwrap(),
-            ))
+            .add_op(&Op::Noop("/foo".try_into().unwrap()))
             .add_op(&Op::Update(
                 "/two".try_into().unwrap(),
-                Value::Str("bar".to_string()),
+                LogValue::Str("bar".to_string()),
             ))
-            .add_op(&Op::Noop(
-                "/bar".try_into().unwrap(),
-            ))
+            .add_op(&Op::Noop("/bar".try_into().unwrap()))
             .add_op(&Op::Update(
                 "/three".try_into().unwrap(),
-                Value::Str("baz".to_string()),
+                LogValue::Str("baz".to_string()),
             ))
             .try_build(|_| Ok(Vec::default()))
             .unwrap();
@@ -253,7 +276,7 @@ mod tests {
         assert_eq!(p.undo_len(), 1);
         assert_eq!(
             p.kvp.get(&"/one".try_into().unwrap()),
-            Some(&Value::Str("foo".to_string()))
+            Some(&LogValue::Str("foo".to_string()))
         );
 
         // undo it and revert back to default state

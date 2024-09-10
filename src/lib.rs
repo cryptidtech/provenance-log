@@ -34,7 +34,7 @@ pub use op::{Op, OpId};
 
 /// The virtual key-value pair store
 pub mod pairs;
-pub use pairs::Kvp;
+pub use pairs::{Kvp, Pairs};
 
 /// Script related functions
 pub mod script;
@@ -44,13 +44,26 @@ pub use script::{EncodedScript, Script, ScriptId};
 #[cfg(feature = "serde")]
 pub mod serde;
 
-/// The parameter and return value stack type 
+/// The parameter and return value stack type
 pub mod stack;
 pub use stack::Stk;
 
 /// Entry Value related functions
 pub mod value;
-pub use value::{Value, ValueId};
+pub use value::{LogValue, ValueId};
+
+/// Virtual Machine type re-exports.
+///
+/// Based on feature "wacc" or "rhai" the [Pairs] and [Value] will be re-exported the chosen feature under a "vm" module.
+///
+/// -
+pub mod vm {
+    #[cfg(feature = "rhai")]
+    pub use comrade_core::{Pairs, Value};
+    // must be not rhai AND target non wasm32
+    #[cfg(all(not(feature = "rhai"), not(target_arch = "wasm32")))]
+    pub use wacc::{Pairs, Value};
+}
 
 /// ...and in the darkness bind them
 pub mod prelude {

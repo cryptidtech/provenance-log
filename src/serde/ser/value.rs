@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Value, ValueId};
+use crate::{LogValue, ValueId};
 use multiutil::{EncodingInfo, Varbytes};
 use serde::ser::{self, SerializeTupleVariant};
 
@@ -18,7 +18,7 @@ impl ser::Serialize for ValueId {
 }
 
 /// Serialize instance of [`crate::Value`]
-impl ser::Serialize for Value {
+impl ser::Serialize for LogValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,

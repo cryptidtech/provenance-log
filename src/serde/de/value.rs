@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{Value, ValueId};
+use crate::{LogValue, ValueId};
 use core::fmt;
 use multiutil::{EncodedVarbytes, Varbytes};
 use serde::{
@@ -24,7 +24,7 @@ impl<'de> Deserialize<'de> for ValueId {
 }
 
 /// Deserialize instance of [`crate::Value`]
-impl<'de> Deserialize<'de> for Value {
+impl<'de> Deserialize<'de> for LogValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -42,7 +42,7 @@ impl<'de> Deserialize<'de> for Value {
         struct StrVisitor;
 
         impl<'de> Visitor<'de> for StrVisitor {
-            type Value = Value;
+            type Value = LogValue;
 
             fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
                 write!(fmt, "enum Value::Str(s)")
@@ -55,14 +55,14 @@ impl<'de> Deserialize<'de> for Value {
                 let s = seq
                     .next_element()?
                     .ok_or_else(|| Error::missing_field("string"))?;
-                Ok(Value::Str(s))
+                Ok(LogValue::Str(s))
             }
         }
 
         struct DataVisitor;
 
         impl<'de> Visitor<'de> for DataVisitor {
-            type Value = Value;
+            type Value = LogValue;
 
             fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
                 write!(fmt, "enum Value::Data(b)")
@@ -75,14 +75,14 @@ impl<'de> Deserialize<'de> for Value {
                 let b: EncodedVarbytes = seq
                     .next_element()?
                     .ok_or_else(|| Error::missing_field("data"))?;
-                Ok(Value::Data(b.to_inner().to_inner()))
+                Ok(LogValue::Data(b.to_inner().to_inner()))
             }
         }
 
         struct ValueVisitor;
 
         impl<'de> Visitor<'de> for ValueVisitor {
-            type Value = Value;
+            type Value = LogValue;
 
             fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
                 write!(fmt, "enum Value")
@@ -95,7 +95,7 @@ impl<'de> Deserialize<'de> for Value {
                 match e.variant()? {
                     (Variant::Nil, v) => {
                         v.unit_variant()?;
-                        Ok(Value::Nil)
+                        Ok(LogValue::Nil)
                     }
                     (Variant::Str, v) => Ok(v.tuple_variant(1, StrVisitor)?),
                     (Variant::Data, v) => Ok(v.tuple_variant(1, DataVisitor)?),

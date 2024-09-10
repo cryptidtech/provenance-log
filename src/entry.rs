@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::EntryError, Error, Key, Lipmaa, Op, Script, Value};
+use crate::{error::EntryError, Error, Key, Lipmaa, LogValue, Op, Script};
 use core::fmt;
 use multibase::Base;
 use multicid::{cid, Cid, EncodedCid, Vlad};
@@ -7,7 +7,12 @@ use multicodec::Codec;
 use multihash::mh;
 use multitrait::{Null, TryDecodeFrom};
 use multiutil::{BaseEncoded, CodecInfo, EncodingInfo, Varbytes, Varuint};
-use std::{convert::From, cmp::Ordering};
+use std::{cmp::Ordering, convert::From};
+
+#[cfg(feature = "rhai")]
+use comrade_core::{Pairs, Value};
+#[cfg(not(feature = "rhai"))]
+use wacc::{Pairs, Value};
 
 /// the multicodec sigil for a provenance entry
 pub const SIGIL: Codec = Codec::ProvenanceLogEntry;
@@ -94,25 +99,29 @@ impl EncodingInfo for Entry {
     }
 }
 
-impl wacc::Pairs for Entry {
-    fn get(&self, key: &str) -> Option<wacc::Value> {
+impl Pairs for Entry {
+    fn get(&self, key: &str) -> Option<Value> {
         let key = match Key::try_from(key) {
             Ok(key) => key,
             Err(_) => return None,
         };
         match self.get_value(&key) {
-            Some(value) => {
-                match value {
-                    Value::Data(data) => Some(wacc::Value::Bin{ hint: key.to_string(), data }),
-                    Value::Str(s) => Some(wacc::Value::Str{ hint: key.to_string(), data: s }),
-                    Value::Nil => None,
-                }
+            Some(value) => match value {
+                LogValue::Data(data) => Some(Value::Bin {
+                    hint: key.to_string(),
+                    data,
+                }),
+                LogValue::Str(s) => Some(Value::Str {
+                    hint: key.to_string(),
+                    data: s,
+                }),
+                LogValue::Nil => None,
             },
             None => None,
         }
     }
 
-    fn put(&mut self, _key: &str, _value: &wacc::Value) -> Option<wacc::Value> {
+    fn put(&mut self, _key: &str, _value: &Value) -> Option<Value> {
         None
     }
 }
@@ -270,7 +279,7 @@ struct Iter<'a> {
 }
 
 impl Iterator for Iter<'_> {
-    type Item = (Key, Value);
+    type Item = (Key, LogValue);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter.next() {
@@ -281,45 +290,45 @@ impl Iterator for Iter<'_> {
                 };
                 self.entry.get_value(&key).map(|value| (key, value))
             }
-            None => None
+            None => None,
         }
     }
 }
 
 impl Entry {
     /// get an iterator over the keys and values
-    pub fn iter(&self) -> impl Iterator<Item = (Key, Value)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (Key, LogValue)> + '_ {
         Iter {
             iter: ENTRY_FIELDS.iter(),
-            entry: self
+            entry: self,
         }
     }
 
     /// get the Entry's values by Key
-    pub fn get_value(&self, key: &Key) -> Option<Value> {
+    pub fn get_value(&self, key: &Key) -> Option<LogValue> {
         match key.as_str() {
             "/entry/" => {
                 let mut e = self.clone();
                 e.proof = Vec::default();
-                Some(Value::Data(e.into()))
+                Some(LogValue::Data(e.into()))
             }
-            "/entry/version" => Some(Value::Data(Varuint(self.version).into())),
-            "/entry/vlad" => Some(Value::Data(self.vlad.clone().into())),
-            "/entry/prev" => Some(Value::Data(self.prev.clone().into())),
-            "/entry/lipmaa" => Some(Value::Data(self.lipmaa.clone().into())),
-            "/entry/seqno" => Some(Value::Data(Varuint(self.seqno).into())),
+            "/entry/version" => Some(LogValue::Data(Varuint(self.version).into())),
+            "/entry/vlad" => Some(LogValue::Data(self.vlad.clone().into())),
+            "/entry/prev" => Some(LogValue::Data(self.prev.clone().into())),
+            "/entry/lipmaa" => Some(LogValue::Data(self.lipmaa.clone().into())),
+            "/entry/seqno" => Some(LogValue::Data(Varuint(self.seqno).into())),
             "/entry/ops" => {
                 let mut v = Vec::new();
                 v.append(&mut Varuint(self.ops.len()).into());
                 self.ops
                     .iter()
                     .for_each(|op| v.append(&mut op.clone().into()));
-                Some(Value::Data(v))
+                Some(LogValue::Data(v))
             }
             // TODO: make this accessible via an iterator
-            //"/entry/locks" => Some(Value::Data(self.locks.clone().into())),
-            "/entry/unlock" => Some(Value::Data(self.unlock.clone().into())),
-            "/entry/proof" => Some(Value::Data(self.proof.clone())),
+            //"/entry/locks" => Some(LogValue::Data(self.locks.clone().into())),
+            "/entry/unlock" => Some(LogValue::Data(self.unlock.clone().into())),
+            "/entry/proof" => Some(LogValue::Data(self.proof.clone())),
             _ => None,
         }
     }
@@ -344,7 +353,7 @@ impl Entry {
         self.ops.iter()
     }
 
-    /// get an iterator over the lock scripts 
+    /// get an iterator over the lock scripts
     pub fn locks(&self) -> impl Iterator<Item = &Script> {
         self.locks.iter()
     }
@@ -394,7 +403,7 @@ impl Entry {
         // lock script to execute
         let mut ops = match self.ops.len() {
             0 => vec![Op::Noop(Key::try_from("/")?)],
-            _ => self.ops.clone()
+            _ => self.ops.clone(),
         };
         // if this entry changes the lock scripts from the previous entry then "touch" the root
         // branch "/" to force the root lock script to execute
@@ -415,7 +424,7 @@ impl Entry {
                     locks_tmp.push(lock.clone());
                 }
             }
-        } 
+        }
 
         // now that we have all of the locks that govern one or more of the ops, we need to go
         // through the locks_in and if each lock is in the locks_tmp, it gets added to the
@@ -572,7 +581,7 @@ impl Builder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{script, Value};
+    use crate::{script, LogValue};
     use multicid::vlad;
     use multikey::nonce;
 
@@ -664,7 +673,9 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
@@ -672,44 +683,54 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
         let locks_in1: Vec<Script> = vec![
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         ];
 
         // these are the same as above just in a different order which is significant
         let locks_in2: Vec<Script> = vec![
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         ];
 
         let ops: Vec<Op> = vec![
             Op::Noop(Key::try_from("/foo").unwrap()),
-            Op::Update(Key::try_from("/bar/baz").unwrap(), Value::default()),
+            Op::Update(Key::try_from("/bar/baz").unwrap(), LogValue::default()),
             Op::Delete(Key::try_from("/bob/babe/boo").unwrap()),
         ];
 
@@ -724,10 +745,13 @@ mod tests {
         // sorting/filtering the locks from the previous event. in this case they are the same
         // locks but in a different order.
         let locks_out = entry.sort_locks(&locks_in1).unwrap();
-        assert_eq!(locks_out[0],
+        assert_eq!(
+            locks_out[0],
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap());
+                .try_build()
+                .unwrap()
+        );
     }
 
     #[test]
@@ -738,7 +762,9 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
@@ -746,27 +772,32 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
         let locks_in: Vec<Script> = vec![
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         ];
 
-        let ops: Vec<Op> = vec![
-        ];
+        let ops: Vec<Op> = vec![];
 
         let entry = Builder::default()
             .with_vlad(&vlad)
@@ -776,12 +807,13 @@ mod tests {
             .unwrap();
 
         let locks_out = entry.sort_locks(&locks_in).unwrap();
-        assert_eq!(locks_out,
-            vec![
-                script::Builder::from_code_cid(&cid1)
-                    .with_path(&Key::default())
-                    .try_build().unwrap(),
-            ]);
+        assert_eq!(
+            locks_out,
+            vec![script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::default())
+                .try_build()
+                .unwrap(),]
+        );
     }
 
     #[test]
@@ -792,7 +824,9 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
@@ -800,28 +834,34 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
         let locks_in: Vec<Script> = vec![
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         ];
 
         let ops: Vec<Op> = vec![
             Op::Noop(Key::try_from("/foo").unwrap()),
-            Op::Update(Key::try_from("/bar/baz").unwrap(), Value::default()),
+            Op::Update(Key::try_from("/bar/baz").unwrap(), LogValue::default()),
             Op::Delete(Key::try_from("/bob/babe/boo").unwrap()),
         ];
 
@@ -833,26 +873,34 @@ mod tests {
             .unwrap();
 
         let locks_out = entry.sort_locks(&locks_in).unwrap();
-        assert_eq!(locks_out[0],
+        assert_eq!(
+            locks_out[0],
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         );
-        assert_eq!(locks_out[1],
+        assert_eq!(
+            locks_out[1],
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap()
+                .try_build()
+                .unwrap()
         );
-        assert_eq!(locks_out[2],
+        assert_eq!(
+            locks_out[2],
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         );
 
-        assert_eq!(locks_out[3],
+        assert_eq!(
+            locks_out[3],
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         );
     }
     #[test]
@@ -881,7 +929,7 @@ mod tests {
             .unwrap();
 
         let script = Script::Cid(Key::default(), cid);
-        let op = Op::Update("/move".try_into().unwrap(), Value::Str("zig!".into()));
+        let op = Op::Update("/move".try_into().unwrap(), LogValue::Str("zig!".into()));
         let entry = Builder::default()
             .with_vlad(&vlad)
             .add_lock(&script)
@@ -893,7 +941,7 @@ mod tests {
         assert_eq!(entry.seqno(), 0);
         for op in entry.ops() {
             assert_eq!(
-                Op::Update("/move".try_into().unwrap(), Value::Str("zig!".into())),
+                Op::Update("/move".try_into().unwrap(), LogValue::Str("zig!".into())),
                 op.clone()
             );
         }

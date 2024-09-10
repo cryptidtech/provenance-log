@@ -40,12 +40,12 @@ impl From<ValueId> for u8 {
     }
 }
 
-impl From<&Value> for ValueId {
-    fn from(op: &Value) -> Self {
+impl From<&LogValue> for ValueId {
+    fn from(op: &LogValue) -> Self {
         match op {
-            Value::Nil => Self::Nil,
-            Value::Str(_) => Self::Str,
-            Value::Data(_) => Self::Data,
+            LogValue::Nil => Self::Nil,
+            LogValue::Str(_) => Self::Str,
+            LogValue::Data(_) => Self::Data,
         }
     }
 }
@@ -110,7 +110,7 @@ impl fmt::Debug for ValueId {
 /// A Value is either a printable string or a binary blob. These are the values
 /// stored in the virtual namespace of the log.
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum Value {
+pub enum LogValue {
     /// An empty value
     #[default]
     Nil,
@@ -120,7 +120,7 @@ pub enum Value {
     Data(Vec<u8>),
 }
 
-impl EncodingInfo for Value {
+impl EncodingInfo for LogValue {
     /// Return the preferred string encoding
     fn preferred_encoding() -> Base {
         Base::Base16Lower
@@ -132,29 +132,29 @@ impl EncodingInfo for Value {
     }
 }
 
-impl AsRef<[u8]> for Value {
+impl AsRef<[u8]> for LogValue {
     fn as_ref(&self) -> &[u8] {
         match self {
-            Value::Nil => &[],
-            Value::Str(s) => s.as_ref(),
-            Value::Data(b) => b.as_ref(),
+            LogValue::Nil => &[],
+            LogValue::Str(s) => s.as_ref(),
+            LogValue::Data(b) => b.as_ref(),
         }
     }
 }
 
-impl From<Value> for Vec<u8> {
-    fn from(val: Value) -> Self {
+impl From<LogValue> for Vec<u8> {
+    fn from(val: LogValue) -> Self {
         let mut v = Vec::default();
         // add in the operation
         v.append(&mut ValueId::from(&val).into());
         match val {
-            Value::Nil => v,
-            Value::Str(s) => {
+            LogValue::Nil => v,
+            LogValue::Str(s) => {
                 // add in the string
                 v.append(&mut Varbytes(s.as_bytes().to_vec()).into());
                 v
             }
-            Value::Data(b) => {
+            LogValue::Data(b) => {
                 // add in the data
                 v.append(&mut Varbytes(b.clone()).into());
                 v
@@ -163,7 +163,7 @@ impl From<Value> for Vec<u8> {
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for Value {
+impl<'a> TryFrom<&'a [u8]> for LogValue {
     type Error = Error;
 
     fn try_from(bytes: &'a [u8]) -> Result<Self, Error> {
@@ -172,7 +172,7 @@ impl<'a> TryFrom<&'a [u8]> for Value {
     }
 }
 
-impl<'a> TryDecodeFrom<'a> for Value {
+impl<'a> TryDecodeFrom<'a> for LogValue {
     type Error = Error;
 
     fn try_decode_from(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), Self::Error> {
@@ -194,7 +194,7 @@ impl<'a> TryDecodeFrom<'a> for Value {
     }
 }
 
-impl fmt::Debug for Value {
+impl fmt::Debug for LogValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let id = ValueId::from(self);
         match self {
