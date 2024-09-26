@@ -133,8 +133,6 @@ impl<'a> Iterator for VerifyIter<'a> {
         // take a copy of self.kvp and turn into Kvp<'static> somehow
         let kvp_copy = OwnedKvp::new(self.kvp.clone());
 
-        debug!("[unlocking] entry #{}", self.seqno);
-
         let Ok(unlocked) = ComradeBuilder::new(unlock, Current(kvp_copy), Proposed(entry.clone()))
             .with_domain(entry.context().as_str())
             .try_unlock()
