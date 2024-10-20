@@ -18,7 +18,7 @@ wacc = ["dep:wacc"]
 [dependencies]
 log = "0.4.22"
 multibase = { version = "1.0", git = "https://github.com/cryptidtech/rust-multibase.git" }
-multicid = { version = "1.0", git = "https://github.com/cryptidtech/multicid.git" }
+multicid = { version = "1.0", git = "https://github.com/DougAnderson444/multicid", branch = "patch" }
 multicodec = { version = "1.0", git = "https://github.com/cryptidtech/rust-multicodec.git" }
 multihash = { version = "1.0", git = "https://github.com/cryptidtech/multihash.git" }
 multikey = { version = "1.0", git = "https://github.com/cryptidtech/multikey.git" }
@@ -47,3 +47,6 @@ serde_cbor = "0.11"
 serde_json = "1.0"
 serde_test = "1.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+[patch.'https://github.com/cryptidtech/multicid.git']
+multicid = { git = "https://github.com/DougAnderson444/multicid", branch = "patch" }
