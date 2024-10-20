@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::EntryError, Error, Key, Lipmaa, LogValue, Op, Script};
+use crate::{error::EntryError, Error, Key, LogValue, Op, Script};
 use core::fmt;
 use multibase::Base;
 use multicid::{cid, Cid, EncodedCid, Vlad};
@@ -448,7 +448,7 @@ pub struct Builder {
     version: u64,
     vlad: Option<Vlad>,
     prev: Option<Cid>,
-    lipmaa: Option<Cid>,
+    lipmaa: Cid,
     seqno: Option<u64>,
     ops: Vec<Op>,
     locks: Vec<Script>,
@@ -461,7 +461,7 @@ impl Default for Builder {
             version: ENTRY_VERSION,
             vlad: None,
             prev: None,
-            lipmaa: None,
+            lipmaa: Cid::null(),
             seqno: None,
             ops: Vec::default(),
             locks: Vec::default(),
@@ -477,7 +477,7 @@ impl From<&Entry> for Builder {
             version: ENTRY_VERSION,
             vlad: Some(entry.vlad()),
             prev: Some(entry.cid()),
-            lipmaa: None,
+            lipmaa: Cid::null(),
             seqno: Some(entry.seqno() + 1),
             ops: Vec::default(),
             locks: entry.locks.clone(),
@@ -507,7 +507,7 @@ impl Builder {
 
     /// Set the lipmaa Cid
     pub fn with_lipmaa(mut self, lipmaa: &Cid) -> Self {
-        self.lipmaa = Some(lipmaa.clone());
+        self.lipmaa = lipmaa.clone();
         self
     }
 
@@ -543,31 +543,20 @@ impl Builder {
 
     /// Build the Entry from the provided data and then call the `gen_proof`
     /// closure to generate a lock script and proof
-    pub fn try_build<F>(&self, mut gen_proof: F) -> Result<Entry, Error>
+    pub fn try_build<F>(self, mut gen_proof: F) -> Result<Entry, Error>
     where
         F: FnMut(&mut Entry) -> Result<Vec<u8>, Error>,
     {
-        let version = self.version;
-        let vlad = self.vlad.clone().ok_or(EntryError::MissingVlad)?;
-        let prev = self.prev.clone().unwrap_or_else(Cid::null);
-        let seqno = self.seqno.unwrap_or_default();
-        let lipmaa = if seqno.is_lipmaa() {
-            self.lipmaa.clone().ok_or(EntryError::MissingLipmaaLink)?
-        } else {
-            Cid::null()
-        };
-        let unlock = self.unlock.clone().ok_or(EntryError::MissingUnlockScript)?;
-
         // first construct an entry with every field except the proof
         let mut entry = Entry {
-            version,
-            vlad,
-            prev,
-            seqno,
-            lipmaa,
+            version: self.version,
+            vlad: self.vlad.ok_or(EntryError::MissingVlad)?,
+            prev: self.prev.unwrap_or_else(Cid::null),
+            seqno: self.seqno.unwrap_or_default(),
+            lipmaa: self.lipmaa,
             ops: self.ops.clone(),
             locks: self.locks.clone(),
-            unlock,
+            unlock: self.unlock.clone().ok_or(EntryError::MissingUnlockScript)?,
             proof: Vec::default(),
         };
 

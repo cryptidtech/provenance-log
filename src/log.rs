@@ -237,7 +237,7 @@ impl Log {
     }
 
     /// Try to add an entry to the p.log
-    pub fn try_append(&mut self, mut entry: Entry) -> Result<(), Error> {
+    pub fn try_append(&mut self, entry: Entry) -> Result<(), Error> {
         let cid = entry.cid();
         let mut plog = self.clone();
         plog.entries.insert(cid.clone(), entry.clone());
@@ -246,13 +246,6 @@ impl Log {
             if let Some(e) = ret.err() {
                 return Err(LogError::VerifyFailed(e.to_string()).into());
             }
-        }
-        // check current entry for lipmaa longhop, and set lipmaa if needed
-        let curr_seqno = entry.seqno();
-        if curr_seqno.is_lipmaa() {
-            let lipmaa = curr_seqno.lipmaa();
-            let longhop_entry = plog.seqno(lipmaa)?;
-            entry.lipmaa = longhop_entry.cid();
         }
         self.entries.insert(cid, entry);
         Ok(())
