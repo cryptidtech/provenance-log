@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{error::KeyError, Error};
-use std::fmt;
 use multibase::Base;
 use multitrait::TryDecodeFrom;
 use multiutil::{EncodingInfo, Varbytes};
-
+use std::fmt;
 
 /// the separator for the parts of a key
 pub const KEY_SEPARATOR: char = '/';
 
-/// The keys used to reference values in a Pairs storage. These form a path of namespaces
+/// The keys used to reference values in a Pairs storage.
+///
+/// These form a path of namespaces
 /// each part separated by the separator "/" and they come in two flavors: branch or leaf
 /// A branch is a key-path that ends with the separator: "/foo/bar/baz/"
 /// A leaf is a key-path that does not end with the separator: "/foo/bar/baz"
@@ -38,7 +39,12 @@ impl Key {
         }
         let moar = Self::try_from(s.as_ref())?;
         let _ = self.parts.pop();
-        self.parts.append(&mut moar.parts[1..].iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        self.parts.append(
+            &mut moar.parts[1..]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+        );
         self.s = self.parts.join(&KEY_SEPARATOR.to_string());
         Ok(())
     }
@@ -236,7 +242,10 @@ impl TryFrom<String> for Key {
             }
             filtered
         };
-        let parts = filtered.split(KEY_SEPARATOR).map(|s| s.to_string()).collect::<Vec<_>>();
+        let parts = filtered
+            .split(KEY_SEPARATOR)
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
         let s = parts.join(&KEY_SEPARATOR.to_string());
         Ok(Self { parts, s })
     }

@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn lipmaa_one() {
-        assert_eq!(0.is_lipmaa(), false);
+        assert!(!0.is_lipmaa());
     }
 
     #[test]
