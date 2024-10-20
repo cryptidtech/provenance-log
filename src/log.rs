@@ -5,7 +5,7 @@ mod rhai;
 //#[cfg(not(feature = "rhai"))]
 //mod wsm;
 
-use crate::{entry, error::LogError, Entry, Error, Kvp, Script};
+use crate::{entry, error::LogError, Entry, Error, Kvp, Lipmaa, Script};
 use core::fmt;
 use multibase::Base;
 use multicid::{Cid, Vlad};
@@ -202,6 +202,14 @@ struct VerifyIter<'a> {
 }
 
 impl Log {
+    /// Returns the Entries with the given seqno
+    pub fn seqno(&self, seqno: u64) -> Result<&Entry, Error> {
+        self.entries
+            .values()
+            .find(|entry| entry.seqno() == seqno)
+            .ok_or(LogError::InvalidSeqno.into())
+    }
+
     /// get an iterator over the entries in from head to foot
     pub fn iter(&self) -> impl Iterator<Item = &Entry> {
         // get a list of Entry references, sort them by seqno
@@ -229,7 +237,7 @@ impl Log {
     }
 
     /// Try to add an entry to the p.log
-    pub fn try_append(&mut self, entry: &Entry) -> Result<(), Error> {
+    pub fn try_append(&mut self, mut entry: Entry) -> Result<(), Error> {
         let cid = entry.cid();
         let mut plog = self.clone();
         plog.entries.insert(cid.clone(), entry.clone());
@@ -239,7 +247,14 @@ impl Log {
                 return Err(LogError::VerifyFailed(e.to_string()).into());
             }
         }
-        self.entries.insert(cid.clone(), entry.clone());
+        // check current entry for lipmaa longhop, and set lipmaa if needed
+        let curr_seqno = entry.seqno();
+        if curr_seqno.is_lipmaa() {
+            let lipmaa = curr_seqno.lipmaa();
+            let longhop_entry = plog.seqno(lipmaa)?;
+            entry.lipmaa = longhop_entry.cid();
+        }
+        self.entries.insert(cid, entry);
         Ok(())
     }
 }
