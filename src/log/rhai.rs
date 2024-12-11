@@ -2,7 +2,6 @@ use crate::{Key, LogValue};
 
 use super::*;
 use comrade_core::{ComradeBuilder, Current, Pairs, Proposed, Value};
-use tracing::{debug, info, trace};
 
 /// Kvp is the virtual key-value pair storage system that builds up the state
 /// encoded in provenance logs as time series of verifiable state changes.
@@ -313,9 +312,13 @@ push("/entry/proof");
 
         // build a vlad from the cid
         let vlad = vlad::Builder::default()
-            .with_signing_key(&ephemeral)
             .with_cid(&cid)
-            .try_build()
+            .try_build(|cid| {
+                let sv = ephemeral.sign_view().unwrap();
+                let cidv: Vec<u8> = cid.clone().into();
+                let ms = sv.sign(&cidv, false, None).unwrap();
+                Ok(ms.into())
+            })
             .unwrap();
 
         // load the entry scripts
@@ -401,9 +404,13 @@ push("/entry/proof");
 
         // create a vlad
         let vlad = vlad::Builder::default()
-            .with_signing_key(&ephemeral)
             .with_cid(&cid)
-            .try_build()
+            .try_build(|cid| {
+                let sv = ephemeral.sign_view().unwrap();
+                let cidv: Vec<u8> = cid.clone().into();
+                let ms = sv.sign(&cidv, false, None).unwrap();
+                Ok(ms.into())
+            })
             .unwrap();
 
         let ephemeral_op = get_key_update_op("/ephemeral", &ephemeral);
