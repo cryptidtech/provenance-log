@@ -16,11 +16,10 @@ impl<'de> Deserialize<'de> for Log {
     where
         D: Deserializer<'de>,
     {
-        const FIELDS: &[&str] =
-            &["version", "vlad", "first_lock", "foot", "head", "entries"];
+        const FIELDS: &[&str] = &["version", "vlad", "first_lock", "foot", "head", "entries"];
 
         #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "lowercase")]
+        #[serde(field_identifier, rename_all = "snake_case")]
         enum Field {
             Version,
             Vlad,
