@@ -180,7 +180,7 @@ impl<'a> Iterator for EntryIter<'a> {
                 self.current += 1;
                 Some(e)
             }
-            None => None
+            None => None,
         }
     }
 }
@@ -225,8 +225,8 @@ impl<'a> Iterator for VerifyIter<'a> {
             // run the unlock script using the entry as the kvp to get the
             // stack in the vm::Context set up.
             let unlock_ctx = vm::Context {
-                current: entry,           // limit the available data to just the entry
-                proposed: entry,          // limit the available data to just the entry
+                current: entry,  // limit the available data to just the entry
+                proposed: entry, // limit the available data to just the entry
                 pstack: &mut pstack,
                 rstack: &mut rstack,
                 check_count: 0,
@@ -243,7 +243,8 @@ impl<'a> Iterator for VerifyIter<'a> {
             let mut instance = match vm::Builder::new()
                 .with_context(unlock_ctx)
                 .with_bytes(entry.unlock.clone())
-                .try_build() {
+                .try_build()
+            {
                 Ok(i) => i,
                 Err(e) => {
                     // set our index out of range
@@ -278,9 +279,12 @@ impl<'a> Iterator for VerifyIter<'a> {
             // set our index out of range
             self.seqno = self.entries.len();
             self.error = Some(
-                LogError::VerifyFailed(
-                    format!("unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}",
-                        rstack, pstack)).into());
+                LogError::VerifyFailed(format!(
+                    "unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}",
+                    rstack, pstack
+                ))
+                .into(),
+            );
             return Some(Err(self.error.clone().unwrap()));
         }
 
@@ -347,7 +351,8 @@ impl<'a> Iterator for VerifyIter<'a> {
                 let mut instance = match vm::Builder::new()
                     .with_context(lock_ctx)
                     .with_bytes(lock.clone())
-                    .try_build() {
+                    .try_build()
+                {
                     Ok(i) => i,
                     Err(e) => {
                         // set our index out of range
@@ -403,9 +408,12 @@ impl<'a> Iterator for VerifyIter<'a> {
             // set our index out of range
             self.seqno = self.entries.len();
             self.error = Some(
-                LogError::VerifyFailed(
-                    format!("unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}",
-                        rstack, pstack)).into());
+                LogError::VerifyFailed(format!(
+                    "unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}",
+                    rstack, pstack
+                ))
+                .into(),
+            );
             return Some(Err(self.error.clone().unwrap()));
         }
 
@@ -437,7 +445,7 @@ impl Log {
             prev_seqno: 0,
             kvp: Kvp::default(),
             lock_scripts: vec![self.first_lock.clone()],
-            error: None
+            error: None,
         }
     }
 
@@ -735,11 +743,11 @@ mod tests {
         let e1 = entry::Builder::default()
             .with_vlad(&vlad)
             .with_seqno(0)
-            .add_lock(&lock)        // "/" -> lock.wast
+            .add_lock(&lock) // "/" -> lock.wast
             .with_unlock(&unlock)
-            .add_op(&ephemeral_op)  // "/ephemeral"
-            .add_op(&pubkey1_op)    // "/pubkey"
-            .add_op(&preimage1_op)  // "/preimage"
+            .add_op(&ephemeral_op) // "/ephemeral"
+            .add_op(&pubkey1_op) // "/pubkey"
+            .add_op(&preimage1_op) // "/preimage"
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
                 let sv = ephemeral.sign_view().unwrap();
@@ -752,11 +760,11 @@ mod tests {
         let e2 = entry::Builder::default()
             .with_vlad(&vlad)
             .with_seqno(1)
-            .add_lock(&lock)        // "/" -> lock.wast
+            .add_lock(&lock) // "/" -> lock.wast
             .with_unlock(&unlock)
             .with_prev(&e1.cid())
-            .add_op(&Op::Delete("/ephemeral".try_into().unwrap()))  // "/ephemeral"
-            .add_op(&pubkey2_op)                                    // "/pubkey"
+            .add_op(&Op::Delete("/ephemeral".try_into().unwrap())) // "/ephemeral"
+            .add_op(&pubkey2_op) // "/pubkey"
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
                 let sv = key1.sign_view().unwrap();
@@ -769,7 +777,7 @@ mod tests {
         let e3 = entry::Builder::default()
             .with_vlad(&vlad)
             .with_seqno(2)
-            .add_lock(&lock)        // "/" -> lock.wast
+            .add_lock(&lock) // "/" -> lock.wast
             .with_unlock(&unlock)
             .with_prev(&e2.cid())
             .try_build(|e| {
@@ -784,14 +792,12 @@ mod tests {
         let e4 = entry::Builder::default()
             .with_vlad(&vlad)
             .with_seqno(3)
-            .add_lock(&lock)        // "/" -> lock.wast
+            .add_lock(&lock) // "/" -> lock.wast
             .with_unlock(&unlock)
             .with_prev(&e3.cid())
-            .add_op(&pubkey3_op)    // "/pubkey"
-            .add_op(&preimage2_op)  // "/preimage"
-            .try_build(|_| {
-                Ok(b"for great justice".to_vec())
-            })
+            .add_op(&pubkey3_op) // "/pubkey"
+            .add_op(&preimage2_op) // "/preimage"
+            .try_build(|_| Ok(b"for great justice".to_vec()))
             .unwrap();
         //println!("{:?}", e4);
 
