@@ -247,7 +247,8 @@ impl Log {
                 return Err(LogError::VerifyFailed(e.to_string()).into());
             }
         }
-        self.entries.insert(cid, entry);
+        self.entries.insert(cid.clone(), entry);
+        self.head = cid;
         Ok(())
     }
 }
@@ -312,7 +313,7 @@ impl Builder {
         if self.entries.is_empty() {
             self.foot = Some(cid.clone());
         }
-        self.entries.insert(cid.clone(), entry.clone());
+        self.entries.insert(cid, entry.clone());
         self
     }
 
