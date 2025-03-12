@@ -461,6 +461,7 @@ impl Log {
             }
         }
         self.entries.insert(cid.clone(), entry.clone());
+        self.head = cid;
         Ok(())
     }
 }
