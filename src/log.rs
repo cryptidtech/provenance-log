@@ -189,6 +189,7 @@ struct VerifyIter<'a> {
     entries: Vec<&'a Entry>,
     seqno: usize,
     prev_seqno: usize,
+    prev_cid: Cid,
     kvp: Kvp<'a>,
     lock_scripts: Vec<Script>,
     error: Option<Error>,
@@ -211,12 +212,21 @@ impl<'a> Iterator for VerifyIter<'a> {
         let mut pstack = Stk::default();
         let mut rstack = Stk::default();
 
-        // check the seqno meet the criteria
+        // check the seqno meets the criteria
         if self.seqno > 0 && self.seqno != self.prev_seqno + 1 {
             // set our index out of range
             self.seqno = self.entries.len();
             // set the error state
             self.error = Some(LogError::InvalidSeqno.into());
+            return Some(Err(self.error.clone().unwrap()));
+        }
+
+        // check if the cid meets the criteria
+        if entry.prev() != self.prev_cid {
+            // set our index out of range
+            self.seqno = self.entries.len();
+            // set the error state
+            self.error = Some(LogError::BrokenPrevLink.into());
             return Some(Err(self.error.clone().unwrap()));
         }
 
@@ -249,6 +259,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                 Err(e) => {
                     // set our index out of range
                     self.seqno = self.entries.len();
+                    // set the error state
                     self.error = Some(LogError::Wacc(e).into());
                     return Some(Err(self.error.clone().unwrap()));
                 }
@@ -259,6 +270,7 @@ impl<'a> Iterator for VerifyIter<'a> {
             if let Some(e) = instance.run("for_great_justice").err() {
                 // set our index out of range
                 self.seqno = self.entries.len();
+                // set the error state
                 self.error = Some(LogError::Wacc(e).into());
                 return Some(Err(self.error.clone().unwrap()));
             }
@@ -278,6 +290,7 @@ impl<'a> Iterator for VerifyIter<'a> {
         if !result {
             // set our index out of range
             self.seqno = self.entries.len();
+            // set the error state
             self.error = Some(
                 LogError::VerifyFailed(format!(
                     "unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}",
@@ -305,6 +318,7 @@ impl<'a> Iterator for VerifyIter<'a> {
             if let Some(e) = self.kvp.apply_entry_ops(entry).err() {
                 // set our index out of range
                 self.seqno = self.entries.len();
+                // set the error state
                 self.error = Some(LogError::UpdateKvpFailed(e.to_string()).into());
                 return Some(Err(self.error.clone().unwrap()));
             }
@@ -319,6 +333,7 @@ impl<'a> Iterator for VerifyIter<'a> {
             Err(e) => {
                 // set our index out of range
                 self.seqno = self.entries.len();
+                // set the error state
                 self.error = Some(e);
                 return Some(Err(self.error.clone().unwrap()));
             }
@@ -357,6 +372,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                     Err(e) => {
                         // set our index out of range
                         self.seqno = self.entries.len();
+                        // set the error state
                         self.error = Some(LogError::Wacc(e).into());
                         return Some(Err(self.error.clone().unwrap()));
                     }
@@ -367,6 +383,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                 if let Some(e) = instance.run("move_every_zig").err() {
                     // set our index out of range
                     self.seqno = self.entries.len();
+                    // set the error state
                     self.error = Some(LogError::Wacc(e).into());
                     return Some(Err(self.error.clone().unwrap()));
                 }
@@ -395,6 +412,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                 if let Some(e) = self.kvp.apply_entry_ops(entry).err() {
                     // set our index out of range
                     self.seqno = self.entries.len();
+                    // set the error state
                     self.error = Some(LogError::UpdateKvpFailed(e.to_string()).into());
                     return Some(Err(self.error.clone().unwrap()));
                 }
@@ -404,9 +422,12 @@ impl<'a> Iterator for VerifyIter<'a> {
             // update the seqno
             self.prev_seqno = self.seqno;
             self.seqno += 1;
+            // update the cid
+            self.prev_cid = entry.cid();
         } else {
             // set our index out of range
             self.seqno = self.entries.len();
+            // set the error state
             self.error = Some(
                 LogError::VerifyFailed(format!(
                     "unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}",
@@ -443,6 +464,7 @@ impl Log {
             entries,
             seqno: 0,
             prev_seqno: 0,
+            prev_cid: Cid::null(),
             kvp: Kvp::default(),
             lock_scripts: vec![self.first_lock.clone()],
             error: None,
