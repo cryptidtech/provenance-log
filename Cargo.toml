@@ -20,8 +20,8 @@ log = "0.4.22"
 multibase = { version = "1.0", git = "https://github.com/cryptidtech/rust-multibase.git" }
 multicid = { version = "1.0", git = "https://github.com/DougAnderson444/multicid", branch = "external-prover" }
 multicodec = { version = "1.0", git = "https://github.com/cryptidtech/rust-multicodec.git" }
-multihash = { version = "1.0", git = "https://github.com/DougAnderson444/multihash.git" }
-multikey = { version = "1.0", git = "https://github.com/DougAnderson444/multikey.git" }
+multihash = { version = "1.0", git = "https://github.com/DougAnderson444/multihash.git", branch = "hash-impl" }
+multikey = { version = "1.0", git = "https://github.com/DougAnderson444/multikey.git", branch = "deps" }
 multisig = { version = "1.0", git = "https://github.com/DougAnderson444/multisig.git" }
 multitrait = { version = "1.0", git = "https://github.com/cryptidtech/multitrait.git" }
 multiutil = { version = "1.0", git = "https://github.com/cryptidtech/multiutil.git" }
@@ -34,7 +34,7 @@ serde_cbor = { version = "0.11", optional = true }
 test-log = "0.2.16"
 thiserror = "1.0"
 # comrade is the wasm32 compatible wacc alternative
-comrade-core = { git = "ssh://git@github.com/DougAnderson444/comrade.git", optional = true }
+comrade-core = { git = "ssh://git@github.com/DougAnderson444/comrade.git", optional = true, branch = "deps" }
 tracing = "0.1.40"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
