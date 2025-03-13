@@ -5,7 +5,7 @@ mod rhai;
 //#[cfg(not(feature = "rhai"))]
 //mod wsm;
 
-use crate::{entry, error::LogError, Entry, Error, Kvp, Lipmaa, Script};
+use crate::{entry, error::LogError, Entry, Error, Kvp, Script};
 use core::fmt;
 use multibase::Base;
 use multicid::{Cid, Vlad};
