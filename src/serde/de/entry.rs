@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
+use super::multiutil;
+
 use crate::{entry::SIGIL, Entry, Op, Script};
 use core::fmt;
 use multicid::{Cid, Vlad};

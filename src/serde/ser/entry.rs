@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{entry::SIGIL, Entry};
-use multiutil::{EncodingInfo, Varbytes};
+use multicid::multiutil::{EncodingInfo, Varbytes};
 use serde::ser::{self, SerializeStruct};
 
 /// Serialize instance of [`crate::Entry`]

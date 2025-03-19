@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::Key;
-use multiutil::Varbytes;
+use multicid::multiutil::Varbytes;
 use serde::ser;
 
 /// Serialize instance of [`crate::Key`]

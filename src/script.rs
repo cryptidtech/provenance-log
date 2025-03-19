@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
+use super::*;
+
 use crate::{error::ScriptError, Error, Key};
 use core::fmt;
 use multibase::Base;
@@ -147,7 +149,7 @@ impl Ord for Script {
 }
 
 impl PartialOrd for Script {
-    /// partial ord for script 
+    /// partial ord for script
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.path().cmp(&other.path()))
     }
@@ -340,10 +342,22 @@ mod tests {
     fn sort_scripts() {
         let cid = Cid::default();
         let mut v: Vec<Script> = vec![
-            Builder::from_code_cid(&cid).with_path(&Key::try_from("/bar/").unwrap()).try_build().unwrap(),
-            Builder::from_code_cid(&cid).with_path(&Key::default()).try_build().unwrap(),
-            Builder::from_code_cid(&cid).with_path(&Key::try_from("/bar/").unwrap()).try_build().unwrap(),
-            Builder::from_code_cid(&cid).with_path(&Key::try_from("/foo").unwrap()).try_build().unwrap(),
+            Builder::from_code_cid(&cid)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build()
+                .unwrap(),
+            Builder::from_code_cid(&cid)
+                .with_path(&Key::default())
+                .try_build()
+                .unwrap(),
+            Builder::from_code_cid(&cid)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build()
+                .unwrap(),
+            Builder::from_code_cid(&cid)
+                .with_path(&Key::try_from("/foo").unwrap())
+                .try_build()
+                .unwrap(),
         ];
         v.sort();
         for s in v {

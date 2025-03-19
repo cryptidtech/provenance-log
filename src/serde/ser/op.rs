@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{Op, OpId};
-use multiutil::Varbytes;
+use multicid::multiutil::Varbytes;
 use serde::ser::{self, SerializeTupleVariant};
 
 /// Serialize instance of [`crate::OpId`]

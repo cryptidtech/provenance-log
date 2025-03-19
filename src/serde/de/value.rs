@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
+use super::multiutil::{EncodedVarbytes, Varbytes};
 use crate::{LogValue, ValueId};
 use core::fmt;
-use multiutil::{EncodedVarbytes, Varbytes};
 use serde::{
     de::{EnumAccess, Error, SeqAccess, VariantAccess, Visitor},
     Deserialize, Deserializer,

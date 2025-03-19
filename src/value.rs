@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
+use super::*;
+
 use crate::{error::ValueError, Error};
 use core::fmt;
 use multibase::Base;

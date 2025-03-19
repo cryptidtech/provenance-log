@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
+use super::*;
 use crate::{error::KeyError, Error};
+
 use multibase::Base;
 use multitrait::TryDecodeFrom;
 use multiutil::{EncodingInfo, Varbytes};

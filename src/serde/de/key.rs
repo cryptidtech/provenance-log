@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: FSL-1.1
+use super::multiutil;
 use crate::Key;
+
 use multiutil::Varbytes;
-use serde::{
-    de::Error,
-    Deserialize, Deserializer,
-};
+use serde::{de::Error, Deserialize, Deserializer};
 
 /// Deserialize instance of [`crate::Key`]
 impl<'de> Deserialize<'de> for Key {

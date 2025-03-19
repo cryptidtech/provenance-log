@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: FSL-1.1
 //! Serde (de)serialization for provenance log types
+use super::*;
+
 mod de;
 mod ser;
 
 #[cfg(test)]
 mod tests {
+
+    use super::*;
+
     use crate::{entry, Key, LogValue, Op, Script};
     use multicid::{cid, vlad};
     use multicodec::Codec;

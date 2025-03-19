@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
+use super::multiutil;
 use crate::{Op, OpId};
+
 use core::fmt;
 use multiutil::Varbytes;
 use serde::{

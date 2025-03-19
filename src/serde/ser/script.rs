@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{script::SIGIL, Script, ScriptId};
-use multiutil::{EncodingInfo, Varbytes};
+use multicid::multiutil::{EncodingInfo, Varbytes};
 use serde::ser::{self, SerializeTupleVariant};
 
 /// Serialize instance of [`crate::ScriptId`]

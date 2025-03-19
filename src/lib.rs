@@ -73,3 +73,7 @@ pub mod prelude {
     pub use multicodec::Codec;
     pub use multiutil::BaseEncoded;
 }
+
+pub use multicid;
+pub use multicid::multicrates::*;
+pub use multicid::multikey;

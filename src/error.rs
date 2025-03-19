@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: FSL-1.1
 /// Errors created by this library
+use super::*;
+
+/// Log Errors
 #[derive(Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
