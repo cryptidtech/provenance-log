@@ -1,19 +1,60 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{error::KeyError, Error};
+use multi_base::Base;
+use multi_trait::{EncodeIntoBuffer, TryDecodeFrom};
+use multi_util::{EncodingInfo, Varbytes};
 use std::fmt;
-use multibase::Base;
-use multitrait::TryDecodeFrom;
-use multiutil::{EncodingInfo, Varbytes};
-
 
 /// the separator for the parts of a key
 pub const KEY_SEPARATOR: char = '/';
 
-/// The keys used to reference values in a Pairs storage. These form a path of namespaces
-/// each part separated by the separator "/" and they come in two flavors: branch or leaf
-/// A branch is a key-path that ends with the separator: "/foo/bar/baz/"
-/// A leaf is a key-path that does not end with the separator: "/foo/bar/baz"
-/// Branches identify a namespace full of leaves and a leaf identifies a single value
+/// Hierarchical key paths for the virtual namespace
+///
+/// Keys are slash-separated paths similar to filesystem paths or URLs. They come in two flavors:
+///
+/// - **Branch** (namespace): Ends with `/` → `/foo/bar/`
+/// - **Leaf** (value): No trailing `/` → `/foo/bar/baz`
+///
+/// Branches identify namespaces that can contain other branches and leaves. Leaves identify
+/// individual values. This distinction is critical for authorization: lock scripts can be
+/// associated with branches to control all operations within that namespace.
+///
+/// # Path Structure
+///
+/// - All paths must start with `/`
+/// - Parts are separated by `/`
+/// - Multiple consecutive `/` are collapsed to a single `/`
+/// - Maximum path length: 1024 characters
+/// - Maximum depth: 32 levels
+///
+/// # Examples
+///
+/// ```
+/// use provenance_log::Key;
+///
+/// // A branch (namespace)
+/// let branch = Key::try_from("/users/alice/").unwrap();
+/// assert!(branch.is_branch());
+/// assert!(!branch.is_leaf());
+/// assert_eq!(branch.len(), 2);
+///
+/// // A leaf (value)
+/// let leaf = Key::try_from("/users/alice/email").unwrap();
+/// assert!(leaf.is_leaf());
+/// assert!(!leaf.is_branch());
+/// assert_eq!(leaf.len(), 3);
+///
+/// // Get the branch part of a leaf
+/// let parent = leaf.branch();
+/// assert_eq!(parent.to_string(), "/users/alice/");
+///
+/// // Check parent-child relationships
+/// assert!(branch.parent_of(&leaf));
+/// ```
+///
+/// # Thread Safety
+///
+/// `Key` is `Send + Sync` as it contains only owned `String` and `Vec<String>`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Key {
     parts: Vec<String>,
@@ -23,12 +64,19 @@ pub struct Key {
 impl Key {
     /// true if this key is a branch
     pub fn is_branch(&self) -> bool {
-        self.parts.last().unwrap().is_empty()
+        self.parts
+            .last()
+            .expect("Key should always have at least one part from construction")
+            .is_empty()
     }
 
     /// true if this key is a leaf
     pub fn is_leaf(&self) -> bool {
-        !self.parts.last().unwrap().is_empty()
+        !self
+            .parts
+            .last()
+            .expect("Key should always have at least one part from construction")
+            .is_empty()
     }
 
     /// add a key-path to us
@@ -38,7 +86,7 @@ impl Key {
         }
         let moar = Self::try_from(s.as_ref())?;
         let _ = self.parts.pop();
-        self.parts.append(&mut moar.parts[1..].iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        self.parts.append(&mut moar.parts[1..].to_vec());
         self.s = self.parts.join(&KEY_SEPARATOR.to_string());
         Ok(())
     }
@@ -169,9 +217,15 @@ impl EncodingInfo for Key {
 impl From<Key> for Vec<u8> {
     fn from(val: Key) -> Self {
         let mut v = Vec::default();
-        // convert the path to a string and encode it as varbytes
-        v.append(&mut Varbytes(val.to_string().as_bytes().to_vec()).into());
+        val.encode_into_buffer(&mut v);
         v
+    }
+}
+
+impl EncodeIntoBuffer for Key {
+    fn encode_into_buffer(&self, output: &mut Vec<u8>) {
+        self.s.len().encode_into_buffer(output);
+        output.extend_from_slice(self.s.as_bytes());
     }
 }
 
@@ -210,6 +264,18 @@ impl TryFrom<String> for Key {
         if s.is_empty() {
             return Err(KeyError::EmptyKey.into());
         }
+
+        // Check path length
+        if s.len() > crate::limits::MAX_KEY_PATH_LENGTH {
+            return Err(KeyError::PathTooLong(s.len(), crate::limits::MAX_KEY_PATH_LENGTH).into());
+        }
+
+        // Check path depth (count separators)
+        let depth = s.matches('/').count();
+        if depth > crate::limits::MAX_KEY_PATH_DEPTH {
+            return Err(KeyError::PathTooDeep(depth, crate::limits::MAX_KEY_PATH_DEPTH).into());
+        }
+
         let filtered = {
             let mut prev = KEY_SEPARATOR;
             let mut filtered = String::default();
@@ -236,7 +302,10 @@ impl TryFrom<String> for Key {
             }
             filtered
         };
-        let parts = filtered.split(KEY_SEPARATOR).map(|s| s.to_string()).collect::<Vec<_>>();
+        let parts = filtered
+            .split(KEY_SEPARATOR)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
         let s = parts.join(&KEY_SEPARATOR.to_string());
         Ok(Self { parts, s })
     }

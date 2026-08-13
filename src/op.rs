@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{error::OpError, Error, Key, Value};
 use core::fmt;
-use multitrait::{EncodeInto, TryDecodeFrom};
+use multi_trait::{EncodeInto, EncodeIntoBuffer, TryDecodeFrom};
 
 /// the identifiers for the operations performed on the namespace in each entry
 #[repr(u8)]
@@ -105,7 +105,46 @@ impl fmt::Debug for OpId {
     }
 }
 
-/// the operations performed on the namespace in each entry
+/// Operations performed on the virtual namespace
+///
+/// Each entry in a provenance log contains zero or more operations that modify the virtual
+/// key-value store. Operations are applied in order and affect authorization decisions.
+///
+/// # Operation Types
+///
+/// - **Noop**: No operation; used to trigger lock script evaluation without modifying state
+/// - **Delete**: Remove a key-value pair from the namespace
+/// - **Update**: Create or modify a key-value pair (idempotent)
+///
+/// # Authorization
+///
+/// Operations trigger lock script evaluation based on their key paths. A lock script at `/users/`
+/// will be evaluated for operations on `/users/alice`, `/users/bob/email`, etc.
+///
+/// # Examples
+///
+/// ```
+/// use provenance_log::{Op, Key, Value};
+///
+/// // Update a value
+/// let update = Op::Update(
+///     Key::try_from("/config/timeout").unwrap(),
+///     Value::Data(vec![0, 0, 0, 60]) // 60 seconds
+/// );
+///
+/// // Delete a value
+/// let delete = Op::Delete(Key::try_from("/temp/session").unwrap());
+///
+/// // Noop to trigger authorization check without changing state
+/// let noop = Op::Noop(Key::try_from("/admin/").unwrap());
+///
+/// // Get the key from any operation
+/// assert_eq!(update.path().to_string(), "/config/timeout");
+/// ```
+///
+/// # Thread Safety
+///
+/// `Op` is `Send + Sync` as it contains only `Key` and `Value`.
 #[derive(Clone, Eq, Hash, Ord, PartialOrd, PartialEq)]
 pub enum Op {
     /// no operation
@@ -117,12 +156,12 @@ pub enum Op {
 }
 
 impl Op {
-    /// get the key in the op 
+    /// get the key in the op
     pub fn path(&self) -> Key {
         match self {
             Self::Noop(p) => p.clone(),
             Self::Delete(p) => p.clone(),
-            Self::Update(p, _) => p.clone()
+            Self::Update(p, _) => p.clone(),
         }
     }
 }
@@ -136,25 +175,29 @@ impl Default for Op {
 impl From<Op> for Vec<u8> {
     fn from(val: Op) -> Self {
         let mut v = Vec::default();
+        val.encode_into_buffer(&mut v);
+        v
+    }
+}
+
+impl EncodeIntoBuffer for Op {
+    fn encode_into_buffer(&self, output: &mut Vec<u8>) {
         // add in the operation
-        v.append(&mut OpId::from(&val).into());
-        match val {
+        u8::from(OpId::from(self)).encode_into_buffer(output);
+        match self {
             Op::Noop(key) => {
                 // add in the key string
-                v.append(&mut key.clone().into());
-                v
+                key.encode_into_buffer(output);
             }
             Op::Delete(key) => {
                 // add in the key string
-                v.append(&mut key.clone().into());
-                v
+                key.encode_into_buffer(output);
             }
             Op::Update(key, value) => {
                 // add in the key string
-                v.append(&mut key.clone().into());
+                key.encode_into_buffer(output);
                 // add in the value data
-                v.append(&mut value.clone().into());
-                v
+                value.encode_into_buffer(output);
             }
         }
     }

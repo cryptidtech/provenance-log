@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{script::SIGIL, Script, ScriptId};
-use multiutil::{EncodingInfo, Varbytes};
+use multi_trait::EncodeIntoBuffer;
+use multi_util::{EncodingInfo, Varbytes};
 use serde::ser::{self, SerializeTupleVariant};
 
 /// Serialize instance of [`crate::ScriptId`]
@@ -12,7 +13,7 @@ impl ser::Serialize for ScriptId {
         if serializer.is_human_readable() {
             serializer.serialize_str(self.as_str())
         } else {
-            Varbytes(self.clone().into()).serialize(serializer)
+            Varbytes::new(self.clone().into()).serialize(serializer)
         }
     }
 }
@@ -28,7 +29,7 @@ impl ser::Serialize for Script {
                 Self::Bin(p, b) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         SIGIL.as_str(),
-                        ScriptId::Bin.code() as u32,
+                        u32::from(ScriptId::Bin.code()),
                         ScriptId::Bin.as_str(),
                         2,
                     )?;
@@ -39,7 +40,7 @@ impl ser::Serialize for Script {
                 Self::Code(p, s) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         SIGIL.as_str(),
-                        ScriptId::Code.code() as u32,
+                        u32::from(ScriptId::Code.code()),
                         ScriptId::Code.as_str(),
                         2,
                     )?;
@@ -50,7 +51,7 @@ impl ser::Serialize for Script {
                 Self::Cid(p, cid) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         SIGIL.as_str(),
-                        ScriptId::Cid.code() as u32,
+                        u32::from(ScriptId::Cid.code()),
                         ScriptId::Cid.as_str(),
                         2,
                     )?;
@@ -60,7 +61,8 @@ impl ser::Serialize for Script {
                 }
             }
         } else {
-            let v: Vec<u8> = self.clone().into();
+            let mut v = Vec::new();
+            self.encode_into_buffer(&mut v);
             serializer.serialize_bytes(v.as_slice())
         }
     }

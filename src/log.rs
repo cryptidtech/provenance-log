@@ -1,13 +1,51 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{entry, error::LogError, Entry, Error, Kvp, Script, Stk};
+//
+//! # WACC VM Execution Limits
+//!
+//! The provenance log verification process executes WASM scripts (lock/unlock) using
+//! the wacc VM with the following security limits configured:
+//!
+//! ## StoreLimits (Memory & Resource Constraints)
+//! - **Memory Size**: 64 KB (1 << 16) - Limits linear memory size to prevent memory exhaustion
+//! - **Instances**: 2 - Maximum number of WASM instances
+//! - **Memories**: 1 - Maximum number of WASM linear memories
+//! - **Tables**: 0 (default) - WASM table count (not explicitly set)
+//!
+//! These limits are applied to both unlock and lock script execution contexts (see lines 239-243
+//! and 358-362).
+//!
+//! ## Fuel Limits (Instruction Counting)
+//! The wacc VM uses Wasmtime's fuel-based execution limiting, which provides instruction-level
+//! control over script execution to prevent infinite loops and DoS attacks. Fuel limits are
+//! configured when building the VM instance via `vm::Builder::new()`, which defaults to:
+//!
+//! - **Production Default**: 1,000,000 fuel units (FuelAmount::DEFAULT)
+//! - **Development Mode**: 10,000,000 fuel units (10× default)
+//! - **Strict Mode**: 100,000 fuel units (for untrusted code)
+//!
+//! Each WASM instruction consumes fuel, and execution is interrupted if fuel is exhausted.
+//! The fuel mechanism is always enabled for security via `Config::consume_fuel(true)` in
+//! the wacc VM builder.
+//!
+//! ## Security Considerations
+//! - StoreLimits protect against memory exhaustion attacks
+//! - Fuel limits protect against infinite loops and excessive computation
+//! - Combined, these limits ensure script execution cannot DoS the verification process
+//! - Timeout limits are NOT directly configurable in StoreLimitsBuilder (as they're handled
+//!   by fuel consumption)
+//! - For more details on security configuration, see `wacc::SecurityLimits`
+//!
+use crate::{entry, error::LogError, Entry, Error, Kvp, Script, Stk, Version};
 use core::fmt;
-use multibase::Base;
-use multicid::{Cid, Vlad};
-use multicodec::Codec;
-use multitrait::{Null, TryDecodeFrom};
-use multiutil::{BaseEncoded, CodecInfo, EncodingInfo, Varuint};
+use multi_base::Base;
+use multi_cid::Cid;
+use multi_codec::Codec;
+use multi_trait::{EncodeInto, EncodeIntoBuffer, Null, TryDecodeFrom};
+use multi_util::{BaseEncoded, CodecInfo, EncodingInfo, Varuint};
+use multi_vlad::Vlad;
 use std::collections::BTreeMap;
-use wacc::{prelude::StoreLimitsBuilder, vm, Stack};
+use wacc::{prelude::StoreLimitsBuilder, types::ContextPath, vm};
+use wasmtime::AsContextMut;
 
 /// the multicodec provenance log codec
 pub const SIGIL: Codec = Codec::ProvenanceLog;
@@ -21,14 +59,91 @@ pub type EncodedLog = BaseEncoded<Log>;
 /// the log entries type
 pub type Entries = BTreeMap<Cid, Entry>;
 
-/// A Provenance Log is made up of a series of Entry objects that are linked
-/// together using content addressing links. Entry object also has a lipmaa
-/// linking structure for efficient O(log n) traversal between any two Entry
-/// object in the Log.
-#[derive(Clone, Default, PartialEq)]
+/// A cryptographically verifiable provenance log
+///
+/// A `Log` is a tamper-evident, append-only data structure composed of linked [`Entry`] objects.
+/// Each entry represents a state transition that must be cryptographically authorized by the
+/// previous entry's lock scripts.
+///
+/// # Structure
+///
+/// - **VLAD**: Verifiable Log Address - a stable identifier for the log
+/// - **Entries**: Content-addressed entry objects stored in a `BTreeMap<Cid, Entry>`
+/// - **Head/Foot**: CIDs of the most recent and first entries
+/// - **First Lock**: The initial lock script that authorizes the first entry
+///
+/// # Linking
+///
+/// Entries are linked via:
+/// - **Prev links**: Each entry points to its immediate predecessor
+/// - **Lipmaa links**: Skip-list style links providing O(log n) traversal
+///
+/// # Verification Process
+///
+/// Call [`verify()`](Self::verify) to validate the entire log:
+///
+/// 1. For each entry, execute its unlock script
+/// 2. Execute applicable lock scripts from the previous entry
+/// 3. If all scripts succeed, apply the entry's operations to the virtual key-value store
+/// 4. Continue with the next entry
+///
+/// ```rust,no_run
+/// # use provenance_log::Log;
+/// # let log = Log::default();
+/// for result in log.verify() {
+///     match result {
+///         Ok((check_count, entry, kvp)) => {
+///             println!("Entry {} verified", entry.seqno());
+///         }
+///         Err(e) => {
+///             eprintln!("Verification failed: {}", e);
+///             break;
+///         }
+///     }
+/// }
+/// ```
+///
+/// # Builder Pattern
+///
+/// Use [`Builder`] to construct logs:
+///
+/// ```rust,no_run
+/// use provenance_log::{Log, log, Entry, Script};
+/// use multi_vlad::Vlad;
+///
+/// # let vlad = Vlad::default();
+/// # let first_lock = Script::default();
+/// # let entry = Entry::default();
+/// let log = log::Builder::new()
+///     .with_vlad(&vlad)
+///     .with_first_lock(&first_lock)
+///     .append_entry(&entry)
+///     .try_build()
+///     .unwrap();
+/// ```
+///
+/// # Common Operations
+///
+/// ```rust,no_run
+/// # use provenance_log::Log;
+/// # let mut log = Log::default();
+/// # let entry = provenance_log::Entry::default();
+/// // Iterate over entries in chronological order
+/// for entry in log.iter() {
+///     println!("Entry #{}: {:?}", entry.seqno(), entry.cid());
+/// }
+///
+/// // Append a new entry with verification
+/// log.try_append(&entry).unwrap();
+/// ```
+///
+/// # Thread Safety
+///
+/// `Log` is `Send + Sync` as all fields are thread-safe.
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct Log {
     /// The version of this log format
-    pub version: u64,
+    pub version: Version,
     /// Every log has a vlad identifier
     pub vlad: Vlad,
     /// The lock script for the first entry
@@ -66,26 +181,40 @@ impl EncodingInfo for Log {
 impl From<Log> for Vec<u8> {
     fn from(val: Log) -> Self {
         let mut v = Vec::default();
-        // add in the provenance log sigil
-        v.append(&mut SIGIL.into());
-        // add in the version
-        v.append(&mut Varuint(val.version).into());
-        // add in the vlad
-        v.append(&mut val.vlad.clone().into());
-        // add in the lock script for the first entry
-        v.append(&mut val.first_lock.clone().into());
-        // add in the foot cid
-        v.append(&mut val.foot.clone().into());
-        // add in the head cid
-        v.append(&mut val.head.clone().into());
-        // add in the entry count
-        v.append(&mut Varuint(val.entries.len()).into());
-        // add in the entries
-        val.entries.iter().for_each(|(cid, entry)| {
-            v.append(&mut cid.clone().into());
-            v.append(&mut entry.clone().into());
-        });
+        val.encode_into_buffer(&mut v);
         v
+    }
+}
+
+impl EncodeIntoBuffer for Log {
+    fn encode_into_buffer(&self, v: &mut Vec<u8>) {
+        // add in the provenance log sigil
+        SIGIL.encode_into_buffer(v);
+        // add in the version
+        Varuint(self.version.as_u64()).encode_into_buffer(v);
+        // add in the vlad
+        self.vlad.encode_into_buffer(v);
+        // add in the lock script for the first entry
+        self.first_lock.encode_into_buffer(v);
+        // add in the foot cid
+        self.foot.encode_into_buffer(v);
+        // add in the head cid
+        self.head.encode_into_buffer(v);
+        // add in the entry count
+        Varuint(self.entries.len()).encode_into_buffer(v);
+        // add in the entries
+        self.entries.iter().for_each(|(cid, entry)| {
+            cid.encode_into_buffer(v);
+            entry.encode_into_buffer(v);
+        });
+    }
+}
+
+impl EncodeInto for Log {
+    fn encode_into(&self) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        self.encode_into_buffer(&mut buffer);
+        buffer
     }
 }
 
@@ -109,7 +238,7 @@ impl<'a> TryDecodeFrom<'a> for Log {
         }
         // decode the version
         let (version, ptr) = Varuint::<u64>::try_decode_from(ptr)?;
-        let version = version.to_inner();
+        let version = Version::new(version.to_inner());
         // decode the vlad
         let (vlad, ptr) = Vlad::try_decode_from(ptr)?;
         // decode the lock script for the first entry
@@ -120,22 +249,26 @@ impl<'a> TryDecodeFrom<'a> for Log {
         let (head, ptr) = Cid::try_decode_from(ptr)?;
         // decode the number of entries
         let (num_entries, ptr) = Varuint::<usize>::try_decode_from(ptr)?;
+        if *num_entries > crate::limits::MAX_ENTRIES_PER_LOG {
+            return Err(
+                LogError::TooManyEntries(*num_entries, crate::limits::MAX_ENTRIES_PER_LOG).into(),
+            );
+        }
         // decode the entries
-        let (entries, ptr) = match *num_entries {
-            0 => (Entries::default(), ptr),
-            _ => {
-                let mut entries = Entries::new();
-                let mut p = ptr;
-                for _ in 0..*num_entries {
-                    let (cid, ptr) = Cid::try_decode_from(p)?;
-                    let (entry, ptr) = Entry::try_decode_from(ptr)?;
-                    if entries.insert(cid.clone(), entry).is_some() {
-                        return Err(LogError::DuplicateEntry(cid).into());
-                    }
-                    p = ptr;
+        let (entries, ptr) = if *num_entries == 0 {
+            (Entries::default(), ptr)
+        } else {
+            let mut entries = Entries::new();
+            let mut p = ptr;
+            for _ in 0..*num_entries {
+                let (cid, ptr) = Cid::try_decode_from(p)?;
+                let (entry, ptr) = Entry::try_decode_from(ptr)?;
+                if entries.insert(cid.clone(), entry).is_some() {
+                    return Err(LogError::DuplicateEntry(cid).into());
                 }
-                (entries, p)
+                p = ptr;
             }
+            (entries, p)
         };
         Ok((
             Self {
@@ -192,6 +325,9 @@ struct VerifyIter<'a> {
     kvp: Kvp<'a>,
     lock_scripts: Vec<Script>,
     error: Option<Error>,
+    /// Enforces XMSS leaf-index monotonicity across this verification pass;
+    /// installed for the lifetime of the iterator (thread-local, RAII).
+    xmss_enforcement: vm::XmssEnforcement,
 }
 
 impl<'a> Iterator for VerifyIter<'a> {
@@ -199,17 +335,38 @@ impl<'a> Iterator for VerifyIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         //println!("iter::next({})", self.seqno);
-        let entry = match self.entries.get(self.seqno) {
-            Some(e) => *e,
-            None => return None,
-        };
+        let entry = *self.entries.get(self.seqno)?;
+
+        // the first entry processed MUST be a true
+        // genesis — sequence number 0 with a null prev link. The iterator
+        // walks entries sorted by seqno and seeds `first_lock`; without this
+        // guard, a log whose real genesis was stripped (truncation/splice)
+        // would verify against `first_lock` as if a later surviving entry
+        // were the genesis. A valid genesis always satisfies this, so honest
+        // logs are unaffected.
+        if self.seqno == 0 && (entry.seqno.as_u64() != 0 || !entry.prev().is_null()) {
+            self.seqno = self.entries.len();
+            self.error = Some(
+                LogError::VerifyFailed {
+                    msg: "first entry is not a valid genesis (seqno != 0 or prev not null)"
+                        .to_string(),
+                    seqno: Some(entry.seqno.as_u64()),
+                    entry_cid: Some(entry.cid()),
+                }
+                .into(),
+            );
+            return Some(Err(self
+                .error
+                .take()
+                .expect("error should be Some as it was just set above")));
+        }
 
         // this is the check count if successful
         let mut count = 0;
 
         // set up the stacks
-        let mut pstack = Stk::default();
-        let mut rstack = Stk::default();
+        let pstack = Stk::default();
+        let rstack = Stk::default();
 
         // check the seqno meet the criteria
         if self.seqno > 0 && self.seqno != self.prev_seqno + 1 {
@@ -217,21 +374,106 @@ impl<'a> Iterator for VerifyIter<'a> {
             self.seqno = self.entries.len();
             // set the error state
             self.error = Some(LogError::InvalidSeqno.into());
-            return Some(Err(self.error.clone().unwrap()));
+            if let Some(error) = self.error.take() {
+                return Some(Err(error));
+            }
+            return None;
+        }
+
+        // HIGH-1: Validate prev link points to actual previous entry's CID
+        if self.seqno > 0 {
+            // Get the previous entry from our sorted list
+            if let Some(prev_entry) = self.entries.get(self.seqno - 1) {
+                // Verify that current entry's prev field matches previous entry's CID
+                // Only validate if prev is not null (null prev means first entry)
+                if !entry.prev().is_null() && entry.prev() != prev_entry.cid() {
+                    self.seqno = self.entries.len();
+                    self.error = Some(
+                        LogError::VerifyFailed {
+                            msg: format!(
+                                "Entry prev link does not match previous entry CID (seqno {})",
+                                entry.seqno
+                            ),
+                            seqno: Some(entry.seqno.as_u64()),
+                            entry_cid: Some(entry.cid()),
+                        }
+                        .into(),
+                    );
+                    return Some(Err(self
+                        .error
+                        .take()
+                        .expect("error should be Some as it was just set above")));
+                }
+            }
+        }
+
+        // CRIT-2: Validate Lipmaa link if this entry should have one
+        if entry.seqno.is_lipmaa() {
+            let expected_lipmaa_seqno = entry.seqno.lipmaa();
+
+            // Find the entry at the expected Lipmaa target sequence number
+            let lipmaa_target_entry = self
+                .entries
+                .iter()
+                .find(|e| e.seqno == expected_lipmaa_seqno);
+
+            if let Some(target_entry) = lipmaa_target_entry {
+                // Verify the Lipmaa link points to the correct entry's CID
+                if entry.lipmaa != target_entry.cid() {
+                    self.seqno = self.entries.len();
+                    self.error = Some(
+                        LogError::InvalidLipmaaLink {
+                            seqno: entry.seqno.as_u64(),
+                            expected_target: expected_lipmaa_seqno.as_u64(),
+                            actual_cid: None,
+                        }
+                        .into(),
+                    );
+                    return Some(Err(self
+                        .error
+                        .take()
+                        .expect("error should be Some as it was just set above")));
+                }
+            } else {
+                // Lipmaa target entry doesn't exist in log
+                self.seqno = self.entries.len();
+                self.error = Some(
+                    LogError::VerifyFailed {
+                        msg: format!(
+                            "Lipmaa target entry at seqno {} not found in log",
+                            expected_lipmaa_seqno
+                        ),
+                        seqno: Some(entry.seqno.as_u64()),
+                        entry_cid: Some(entry.cid()),
+                    }
+                    .into(),
+                );
+                return Some(Err(self
+                    .error
+                    .take()
+                    .expect("error should be Some as it was just set above")));
+            }
         }
 
         // 'unlock:
-        let mut result = {
+        // Extract pstack values after unlock to use in lock scripts
+        log::warn!(
+            "VerifyIter seqno={} proof_count={} proof_keys={:?}",
+            self.seqno,
+            entry.proofs.len(),
+            entry.proofs.keys().collect::<Vec<_>>()
+        );
+        let (mut result, pstack_values) = {
             // run the unlock script using the entry as the kvp to get the
             // stack in the vm::Context set up.
             let unlock_ctx = vm::Context {
-                current: entry,  // limit the available data to just the entry
-                proposed: entry, // limit the available data to just the entry
-                pstack: &mut pstack,
-                rstack: &mut rstack,
-                check_count: 0,
+                current: Box::new(entry.clone()), // limit the available data to just the entry
+                proposed: Box::new(entry.clone()), // limit the available data to just the entry
+                pstack: Box::new(pstack),
+                rstack: Box::new(rstack),
+                check_count: 0.into(),
                 write_idx: 0,
-                context: entry.context().to_string(),
+                context: ContextPath::new(entry.context().to_string()),
                 log: Vec::default(),
                 limiter: StoreLimitsBuilder::new()
                     .memory_size(1 << 16)
@@ -250,22 +492,42 @@ impl<'a> Iterator for VerifyIter<'a> {
                     // set our index out of range
                     self.seqno = self.entries.len();
                     self.error = Some(LogError::Wacc(e).into());
-                    return Some(Err(self.error.clone().unwrap()));
+                    return Some(Err(self
+                        .error
+                        .take()
+                        .expect("error should be Some as it was just set above")));
                 }
             };
             //print!("running unlock script from seqno: {}...", self.seqno);
 
-            // run the unlock script
-            if let Some(e) = instance.run("for_great_justice").err() {
-                // set our index out of range
-                self.seqno = self.entries.len();
-                self.error = Some(LogError::Wacc(e).into());
-                return Some(Err(self.error.clone().unwrap()));
-            }
+            // run the unlock script — check both the return value and any runtime error
+            let unlock_ok = match instance.run("for_great_justice") {
+                Ok(b) => b,
+                Err(e) => {
+                    // set our index out of range
+                    self.seqno = self.entries.len();
+                    self.error = Some(LogError::Wacc(e).into());
+                    return Some(Err(self
+                        .error
+                        .take()
+                        .expect("error should be Some as it was just set above")));
+                }
+            };
 
-            //println!("SUCCEEDED!");
+            // Extract pstack values from the store after unlock script runs
+            let values = {
+                let mut ctx = instance.store.as_context_mut();
+                let context = ctx.data_mut();
+                let mut values = Vec::new();
+                for i in 0..context.pstack.len() {
+                    if let Some(val) = context.pstack.peek(context.pstack.len() - 1 - i) {
+                        values.push(val);
+                    }
+                }
+                values
+            };
 
-            true
+            (unlock_ok, values)
         };
 
         /*
@@ -279,13 +541,17 @@ impl<'a> Iterator for VerifyIter<'a> {
             // set our index out of range
             self.seqno = self.entries.len();
             self.error = Some(
-                LogError::VerifyFailed(format!(
-                    "unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}",
-                    rstack, pstack
-                ))
+                LogError::VerifyFailed {
+                    msg: "unlock script failed".to_string(),
+                    seqno: Some(entry.seqno.as_u64()),
+                    entry_cid: Some(entry.cid()),
+                }
                 .into(),
             );
-            return Some(Err(self.error.clone().unwrap()));
+            return Some(Err(self
+                .error
+                .take()
+                .expect("error should be Some as it was just set above")));
         }
 
         /*
@@ -293,8 +559,11 @@ impl<'a> Iterator for VerifyIter<'a> {
         if let Some(e) = self.kvp.set_entry(entry).err() {
             // set our index out of range
             self.seqno = self.entries.len();
-            self.error = Some(LogError::KvpSetEntryFailed(e.to_string()).into());
-            return Some(Err(self.error.clone().unwrap()));
+            self.error = Some(LogError::KvpSetEntryFailed {
+                msg: e.to_string(),
+                entry_cid: Some(entry.cid()),
+            }.into());
+            return Some(Err(self.error.take().unwrap()));
         }
         */
 
@@ -305,13 +574,24 @@ impl<'a> Iterator for VerifyIter<'a> {
             if let Some(e) = self.kvp.apply_entry_ops(entry).err() {
                 // set our index out of range
                 self.seqno = self.entries.len();
-                self.error = Some(LogError::UpdateKvpFailed(e.to_string()).into());
-                return Some(Err(self.error.clone().unwrap()));
+                self.error = Some(
+                    LogError::UpdateKvpFailed {
+                        msg: e.to_string(),
+                        seqno: Some(entry.seqno.as_u64()),
+                        entry_cid: Some(entry.cid()),
+                    }
+                    .into(),
+                );
+                return Some(Err(self
+                    .error
+                    .take()
+                    .expect("error should be Some as it was just set above")));
             }
         }
 
         // 'lock:
         result = false;
+        let mut lock_fail_reason: Option<String> = None;
 
         // build the set of lock scripts to run in order from root to longest branch to leaf
         let locks = match entry.sort_locks(&self.lock_scripts) {
@@ -320,26 +600,25 @@ impl<'a> Iterator for VerifyIter<'a> {
                 // set our index out of range
                 self.seqno = self.entries.len();
                 self.error = Some(e);
-                return Some(Err(self.error.clone().unwrap()));
+                return Some(Err(self
+                    .error
+                    .take()
+                    .expect("error should be Some as it was just set above")));
             }
         };
 
         // run each of the lock scripts
         for lock in locks {
-            // NOTE: clone the kvp and stacks each time
-            let lock_kvp = self.kvp.clone();
-            let mut lock_pstack = pstack.clone();
-            let mut lock_rstack = rstack.clone();
-
-            {
+            let lock_result = {
+                // Create context with owned data
                 let lock_ctx = vm::Context {
-                    current: &lock_kvp,
-                    proposed: entry,
-                    pstack: &mut lock_pstack,
-                    rstack: &mut lock_rstack,
-                    check_count: 0,
+                    current: Box::new(self.kvp.without_entry()),
+                    proposed: Box::new(entry.clone()),
+                    pstack: Box::new(Stk::from_values(pstack_values.clone())),
+                    rstack: Box::new(Stk::default()),
+                    check_count: 0.into(),
                     write_idx: 0,
-                    context: entry.context().to_string(), // set the branch path for branch()
+                    context: ContextPath::new(entry.context().to_string()), // set the branch path for branch()
                     log: Vec::default(),
                     limiter: StoreLimitsBuilder::new()
                         .memory_size(1 << 16)
@@ -358,7 +637,10 @@ impl<'a> Iterator for VerifyIter<'a> {
                         // set our index out of range
                         self.seqno = self.entries.len();
                         self.error = Some(LogError::Wacc(e).into());
-                        return Some(Err(self.error.clone().unwrap()));
+                        return Some(Err(self
+                            .error
+                            .take()
+                            .expect("error should be Some as it was just set above")));
                     }
                 };
                 //print!("running lock script from seqno: {}...", self.seqno);
@@ -368,19 +650,31 @@ impl<'a> Iterator for VerifyIter<'a> {
                     // set our index out of range
                     self.seqno = self.entries.len();
                     self.error = Some(LogError::Wacc(e).into());
-                    return Some(Err(self.error.clone().unwrap()));
+                    return Some(Err(self
+                        .error
+                        .take()
+                        .expect("error should be Some as it was just set above")));
                 }
 
                 //println!("SUCCEEDED!");
-            }
+
+                // Extract the result from the instance's store
+                let mut ctx = instance.store.as_context_mut();
+                let context = ctx.data_mut();
+                context.rstack.top()
+            };
 
             // break out of this loop as soon as a lock script succeeds
-            if let Some(v) = lock_rstack.top() {
+            if let Some(v) = lock_result {
                 match v {
                     vm::Value::Success(c) => {
                         count = c;
                         result = true;
                         break;
+                    }
+                    vm::Value::Failure(ref reason) => {
+                        lock_fail_reason = Some(reason.clone());
+                        result = false;
                     }
                     _ => result = false,
                 }
@@ -395,10 +689,23 @@ impl<'a> Iterator for VerifyIter<'a> {
                 if let Some(e) = self.kvp.apply_entry_ops(entry).err() {
                     // set our index out of range
                     self.seqno = self.entries.len();
-                    self.error = Some(LogError::UpdateKvpFailed(e.to_string()).into());
-                    return Some(Err(self.error.clone().unwrap()));
+                    self.error = Some(
+                        LogError::UpdateKvpFailed {
+                            msg: e.to_string(),
+                            seqno: Some(entry.seqno.as_u64()),
+                            entry_cid: Some(entry.cid()),
+                        }
+                        .into(),
+                    );
+                    return Some(Err(self
+                        .error
+                        .take()
+                        .expect("error should be Some as it was just set above")));
                 }
             }
+            // the entry validated: commit any XMSS leaf indices it consumed so
+            // later entries must use strictly greater indices for the same key
+            self.xmss_enforcement.commit_entry();
             // update the lock script to validate the next entry
             self.lock_scripts.clone_from(&entry.locks);
             // update the seqno
@@ -408,13 +715,20 @@ impl<'a> Iterator for VerifyIter<'a> {
             // set our index out of range
             self.seqno = self.entries.len();
             self.error = Some(
-                LogError::VerifyFailed(format!(
-                    "unlock script failed\nvalues:\n{:?}\nreturn:\n{:?}",
-                    rstack, pstack
-                ))
+                LogError::VerifyFailed {
+                    msg: lock_fail_reason.map_or_else(
+                        || "lock script failed".to_string(),
+                        |r| format!("lock script failed: {r}"),
+                    ),
+                    seqno: Some(entry.seqno.as_u64()),
+                    entry_cid: Some(entry.cid()),
+                }
                 .into(),
             );
-            return Some(Err(self.error.clone().unwrap()));
+            return Some(Err(self
+                .error
+                .take()
+                .expect("error should be Some as it was just set above")));
         }
 
         // return the check count, validated entry, and kvp state
@@ -446,6 +760,7 @@ impl Log {
             kvp: Kvp::default(),
             lock_scripts: vec![self.first_lock.clone()],
             error: None,
+            xmss_enforcement: vm::XmssEnforcement::install(),
         }
     }
 
@@ -457,7 +772,12 @@ impl Log {
         let vi = plog.verify();
         for ret in vi {
             if let Some(e) = ret.err() {
-                return Err(LogError::VerifyFailed(e.to_string()).into());
+                return Err(LogError::VerifyFailed {
+                    msg: e.to_string(),
+                    seqno: None,
+                    entry_cid: Some(cid.clone()),
+                }
+                .into());
             }
         }
         self.entries.insert(cid.clone(), entry.clone());
@@ -468,9 +788,8 @@ impl Log {
 
 /// Builder for Log objects
 #[derive(Clone, Default)]
-#[allow(dead_code)]
 pub struct Builder {
-    version: u64,
+    version: Version,
     vlad: Option<Vlad>,
     first_lock: Option<Script>,
     foot: Option<Cid>,
@@ -482,7 +801,7 @@ impl Builder {
     /// build new with version
     pub fn new() -> Self {
         Self {
-            version: LOG_VERSION,
+            version: Version::CURRENT,
             ..Default::default()
         }
     }
@@ -576,16 +895,17 @@ impl Builder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Key, Op, Value};
-    use multicid::{cid, vlad};
-    use multihash::mh;
-    use multikey::{EncodedMultikey, Multikey, Views};
+    use crate::{Key, Op, SeqNo, Value};
+    use multi_hash::mh;
+    use multi_key::{EncodedMultikey, Multikey, Views};
+    use multi_vlad::vlad;
     use std::path::PathBuf;
 
     fn load_script(path: &Key, file_name: &str) -> Script {
+        // CARGO_MANIFEST_DIR points to crates/provenance-log
+        // Need to go up to workspace root, then into examples/provenance-log/wast
         let mut pb = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        pb.push("examples");
-        pb.push("wast");
+        pb.push("examples/provenance-log/wast");
         pb.push(file_name);
         crate::script::Builder::from_code_file(&pb)
             .with_path(path)
@@ -625,36 +945,24 @@ mod tests {
         )
         .unwrap();
 
-        // build a cid
-        let cid = cid::Builder::new(Codec::Cidv1)
-            .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha3512, b"for great justice, move every zig!")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
-            .try_build()
-            .unwrap();
-
-        // build a vlad from the cid
+        // build a vlad
         let vlad = vlad::Builder::default()
             .with_signing_key(&ephemeral)
-            .with_cid(&cid)
+            .with_message(&[0x00u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
             .try_build()
             .unwrap();
 
         // load the entry scripts
         let lock = load_script(&Key::default(), "lock.wast");
         let unlock = load_script(&Key::default(), "unlock.wast");
-        let ephemeral_op = get_key_update_op("/ephemeral", &ephemeral);
-        let pubkey_op = get_key_update_op("/pubkey", &key);
+        let vlad_key_op = get_key_update_op("/vlad/key", &ephemeral);
+        let pubkey_op = get_key_update_op("/keys/primary", &key);
 
         let entry = entry::Builder::default()
             .with_vlad(&vlad)
             .add_lock(&lock)
             .with_unlock(&unlock)
-            .add_op(&ephemeral_op)
+            .add_op(&vlad_key_op)
             .add_op(&pubkey_op)
             .try_build(|e| {
                 // get the serialized version of the entry (with empty proof)
@@ -664,7 +972,8 @@ mod tests {
                 // generate the signature over the event
                 let ms = sv.sign(&ev, false, None).unwrap();
                 // store the signature as proof
-                Ok(ms.into())
+                let sig: Vec<u8> = ms.into();
+                Ok(BTreeMap::from([("primary".to_string(), sig)]))
             })
             .unwrap();
 
@@ -683,12 +992,244 @@ mod tests {
         assert!(!log.head.is_null());
         assert_eq!(log.foot, log.head);
         assert_eq!(Some(entry), log.iter().next().cloned());
-        let mut verify_iter = log.verify();
-        while let Some(ret) = verify_iter.next() {
+        let verify_iter = log.verify();
+        for ret in verify_iter {
             if let Some(e) = ret.err() {
-                println!("verify failed: {}", e.to_string());
+                println!("verify failed: {e}");
             }
         }
+    }
+
+    #[test]
+    fn test_xmss_index_reuse_rejected_in_plog() {
+        use multi_key::mk;
+
+        let mut rng = rand_010::rng();
+        // ephemeral ed25519 key signs the vlad and the foot entry
+        let ephemeral = mk::Builder::new_from_random_bytes(Codec::Ed25519Priv, &mut rng)
+            .unwrap()
+            .try_build()
+            .unwrap();
+        // a single XMSS-SHA2_10_256 key signs the following entries; because the
+        // stateless sign view does not advance the stored key, every signature it
+        // produces consumes leaf index 0 — i.e. the second one is a reuse.
+        let xmss = mk::Builder::new_from_random_bytes(Codec::XmssSha210256Priv, &mut rng)
+            .unwrap()
+            .try_build()
+            .unwrap();
+
+        let vlad = vlad::Builder::default()
+            .with_signing_key(&ephemeral)
+            .with_message(&[0x00u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
+            .try_build()
+            .unwrap();
+
+        let lock = load_script(&Key::default(), "lock.wast");
+        let unlock = load_script(&Key::default(), "unlock.wast");
+        let first = load_script(&Key::default(), "first.wast");
+
+        let vlad_key_op = get_key_update_op("/vlad/key", &ephemeral);
+        let xmss_primary_op = get_key_update_op("/keys/primary", &xmss);
+
+        // foot: registers the XMSS public key as /keys/primary, self-signed by
+        // the ephemeral key (validated by first.wast)
+        let e1 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::FIRST)
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .add_op(&vlad_key_op)
+            .add_op(&xmss_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = ephemeral
+                    .sign_view()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        // seqno 1: signed by the XMSS key at leaf index 0 (valid), keeps
+        // /keys/primary = XMSS pub so the same key validates the next entry
+        let e2 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::new(1))
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .with_prev(&e1.cid())
+            .add_op(&xmss_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = xmss.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                assert_eq!(ms.sig_index(), Some(0));
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        // a log of the foot + one valid XMSS entry must verify cleanly
+        let good_log = Builder::new()
+            .with_vlad(&vlad)
+            .with_first_lock(&first)
+            .append_entry(&e1)
+            .append_entry(&e2)
+            .try_build()
+            .unwrap();
+        for ret in good_log.verify() {
+            assert!(ret.is_ok(), "valid XMSS log should verify: {:?}", ret.err());
+        }
+
+        // seqno 2: signed by the SAME XMSS key, which again consumes leaf index 0
+        // — a reuse that simulates restoring the key from an old snapshot
+        let e3 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::new(2))
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .with_prev(&e2.cid())
+            .add_op(&xmss_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = xmss.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                assert_eq!(ms.sig_index(), Some(0)); // reused index
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        let reuse_log = Builder::new()
+            .with_vlad(&vlad)
+            .with_first_lock(&first)
+            .append_entry(&e1)
+            .append_entry(&e2)
+            .append_entry(&e3)
+            .try_build()
+            .unwrap();
+
+        // verification must fail on the reusing entry
+        let results: Vec<_> = reuse_log.verify().collect();
+        let err = results
+            .iter()
+            .find_map(|r| r.as_ref().err())
+            .expect("XMSS index reuse must be rejected by plog verification");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("reused") || msg.contains("rolled back"),
+            "expected an XMSS index-reuse error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_lamport_one_time_reuse_rejected_in_plog() {
+        use multi_key::mk;
+
+        let mut rng = rand_010::rng();
+        let ephemeral = mk::Builder::new_from_random_bytes(Codec::Ed25519Priv, &mut rng)
+            .unwrap()
+            .try_build()
+            .unwrap();
+        // a single Lamport key signs two entries; the second use must be rejected
+        let lamport = mk::Builder::new_from_random_bytes(Codec::LamportSha3256Priv, &mut rng)
+            .unwrap()
+            .try_build()
+            .unwrap();
+
+        let vlad = vlad::Builder::default()
+            .with_signing_key(&ephemeral)
+            .with_message(&[0x00u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
+            .try_build()
+            .unwrap();
+
+        let lock = load_script(&Key::default(), "lock.wast");
+        let unlock = load_script(&Key::default(), "unlock.wast");
+        let first = load_script(&Key::default(), "first.wast");
+
+        let vlad_key_op = get_key_update_op("/vlad/key", &ephemeral);
+        let lamport_primary_op = get_key_update_op("/keys/primary", &lamport);
+
+        // foot: registers the Lamport public key as /keys/primary
+        let e1 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::FIRST)
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .add_op(&vlad_key_op)
+            .add_op(&lamport_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = ephemeral
+                    .sign_view()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        // seqno 1: first (valid) use of the Lamport key, keeps /keys/primary
+        let e2 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::new(1))
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .with_prev(&e1.cid())
+            .add_op(&lamport_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = lamport.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        // foot + one valid Lamport entry must verify cleanly
+        let good_log = Builder::new()
+            .with_vlad(&vlad)
+            .with_first_lock(&first)
+            .append_entry(&e1)
+            .append_entry(&e2)
+            .try_build()
+            .unwrap();
+        for ret in good_log.verify() {
+            assert!(
+                ret.is_ok(),
+                "valid Lamport log should verify: {:?}",
+                ret.err()
+            );
+        }
+
+        // seqno 2: SECOND use of the same Lamport key — a one-time-key reuse
+        let e3 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::new(2))
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .with_prev(&e2.cid())
+            .add_op(&lamport_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = lamport.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        let reuse_log = Builder::new()
+            .with_vlad(&vlad)
+            .with_first_lock(&first)
+            .append_entry(&e1)
+            .append_entry(&e2)
+            .append_entry(&e3)
+            .try_build()
+            .unwrap();
+
+        let results: Vec<_> = reuse_log.verify().collect();
+        let err = results
+            .iter()
+            .find_map(|r| r.as_ref().err())
+            .expect("Lamport one-time-key reuse must be rejected by plog verification");
+        assert!(
+            err.to_string().contains("reused"),
+            "expected a Lamport reuse error, got: {err}"
+        );
     }
 
     #[test]
@@ -710,29 +1251,17 @@ mod tests {
         )
         .unwrap();
 
-        // build a cid
-        let cid = cid::Builder::new(Codec::Cidv1)
-            .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha3512, b"for great justice, move every zig!")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
-            .try_build()
-            .unwrap();
-
         // create a vlad
         let vlad = vlad::Builder::default()
             .with_signing_key(&ephemeral)
-            .with_cid(&cid)
+            .with_message(&[0x00u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
             .try_build()
             .unwrap();
 
-        let ephemeral_op = get_key_update_op("/ephemeral", &ephemeral);
-        let pubkey1_op = get_key_update_op("/pubkey", &key1);
-        let pubkey2_op = get_key_update_op("/pubkey", &key2);
-        let pubkey3_op = get_key_update_op("/pubkey", &key3);
+        let vlad_key_op = get_key_update_op("/vlad/key", &ephemeral);
+        let pubkey1_op = get_key_update_op("/keys/primary", &key1);
+        let pubkey2_op = get_key_update_op("/keys/primary", &key2);
+        let pubkey3_op = get_key_update_op("/keys/primary", &key3);
         let preimage1_op = get_hash_update_op("/hash", "for great justice");
         let preimage2_op = get_hash_update_op("/hash", "move every zig");
 
@@ -743,41 +1272,43 @@ mod tests {
         // create the first, self-signed Entry object
         let e1 = entry::Builder::default()
             .with_vlad(&vlad)
-            .with_seqno(0)
+            .with_seqno(SeqNo::FIRST)
             .add_lock(&lock) // "/" -> lock.wast
             .with_unlock(&unlock)
-            .add_op(&ephemeral_op) // "/ephemeral"
-            .add_op(&pubkey1_op) // "/pubkey"
+            .add_op(&vlad_key_op) // "/vlad/key"
+            .add_op(&pubkey1_op) // "/keys/primary"
             .add_op(&preimage1_op) // "/preimage"
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
                 let sv = ephemeral.sign_view().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
-                Ok(ms.into())
+                let sig: Vec<u8> = ms.into();
+                Ok(BTreeMap::from([("primary".to_string(), sig)]))
             })
             .unwrap();
 
         //println!("{:?}", e1);
         let e2 = entry::Builder::default()
             .with_vlad(&vlad)
-            .with_seqno(1)
+            .with_seqno(SeqNo::new(1))
             .add_lock(&lock) // "/" -> lock.wast
             .with_unlock(&unlock)
             .with_prev(&e1.cid())
-            .add_op(&Op::Delete("/ephemeral".try_into().unwrap())) // "/ephemeral"
-            .add_op(&pubkey2_op) // "/pubkey"
+            .add_op(&Op::Delete("/vlad/key".try_into().unwrap())) // "/vlad/key"
+            .add_op(&pubkey2_op) // "/keys/primary"
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
                 let sv = key1.sign_view().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
-                Ok(ms.into())
+                let sig: Vec<u8> = ms.into();
+                Ok(BTreeMap::from([("primary".to_string(), sig)]))
             })
             .unwrap();
 
         //println!("{:?}", e2);
         let e3 = entry::Builder::default()
             .with_vlad(&vlad)
-            .with_seqno(2)
+            .with_seqno(SeqNo::new(2))
             .add_lock(&lock) // "/" -> lock.wast
             .with_unlock(&unlock)
             .with_prev(&e2.cid())
@@ -785,20 +1316,27 @@ mod tests {
                 let ev: Vec<u8> = e.clone().into();
                 let sv = key2.sign_view().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
-                Ok(ms.into())
+                let sig: Vec<u8> = ms.into();
+                Ok(BTreeMap::from([("primary".to_string(), sig)]))
             })
             .unwrap();
 
         //println!("{:?}", e3);
         let e4 = entry::Builder::default()
             .with_vlad(&vlad)
-            .with_seqno(3)
+            .with_seqno(SeqNo::new(3))
             .add_lock(&lock) // "/" -> lock.wast
             .with_unlock(&unlock)
             .with_prev(&e3.cid())
-            .add_op(&pubkey3_op) // "/pubkey"
+            .add_op(&pubkey3_op) // "/keys/primary"
             .add_op(&preimage2_op) // "/preimage"
-            .try_build(|_| Ok(b"for great justice".to_vec()))
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let sv = key2.sign_view().unwrap();
+                let ms = sv.sign(&ev, false, None).unwrap();
+                let sig: Vec<u8> = ms.into();
+                Ok(BTreeMap::from([("primary".to_string(), sig)]))
+            })
             .unwrap();
         //println!("{:?}", e4);
 
@@ -823,14 +1361,14 @@ mod tests {
         assert_eq!(Some(&e3), iter.next());
         assert_eq!(Some(&e4), iter.next());
         assert_eq!(None, iter.next());
-        let mut verify_iter = log.verify();
-        while let Some(ret) = verify_iter.next() {
+        let verify_iter = log.verify();
+        for ret in verify_iter {
             match ret {
                 Ok((c, _, _)) => {
-                    println!("check count: {}", c);
+                    println!("check count: {c}");
                 }
                 Err(e) => {
-                    println!("verify failed: {}", e.to_string());
+                    println!("verify failed: {e}");
                     panic!();
                 }
             }

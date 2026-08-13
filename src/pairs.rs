@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::KvpError, Entry, Error, Key, Op, Value};
+use crate::{error::KvpError, Entry, Error, Key, Op, SeqNo, Value};
 use std::{collections::BTreeMap, fmt};
 
 /// Kvp is the virtual key-value pair storage system that builds up the state
@@ -18,16 +18,23 @@ impl<'a> wacc::Pairs for Kvp<'a> {
     fn get(&self, key: &str) -> Option<wacc::Value> {
         let k = match Key::try_from(key) {
             Ok(k) => k,
-            _ => return None
+            _ => return None,
         };
         match self.kvp.get(&k) {
-            Some(ref v) => {
-                match v {
-                    Value::Nil => Some(wacc::Value::Bin { hint: key.to_string(), data: Vec::default() }),
-                    Value::Str(ref s) => Some(wacc::Value::Str { hint: key.to_string(), data: s.clone() }),
-                    Value::Data(ref v) => Some(wacc::Value::Bin { hint: key.to_string(), data: v.clone() }),
-                }
-            }
+            Some(ref v) => match v {
+                Value::Nil => Some(wacc::Value::Bin {
+                    hint: key.to_string(),
+                    data: Vec::default().into(),
+                }),
+                Value::Str(ref s) => Some(wacc::Value::Str {
+                    hint: key.to_string(),
+                    data: s.clone().into(),
+                }),
+                Value::Data(ref v) => Some(wacc::Value::Bin {
+                    hint: key.to_string(),
+                    data: v.clone().into(),
+                }),
+            },
             None => {
                 if let Some(entry) = self.entry {
                     entry.get(key)
@@ -41,18 +48,33 @@ impl<'a> wacc::Pairs for Kvp<'a> {
     fn put(&mut self, key: &str, value: &wacc::Value) -> Option<wacc::Value> {
         let k = match Key::try_from(key) {
             Ok(k) => k,
-            _ => return None
+            _ => return None,
         };
         let v = match value {
-            wacc::Value::Str { hint: _, data: ref s } => Value::Str(s.clone()),
-            wacc::Value::Bin { hint: _, data: ref v } => Value::Data(v.clone()),
-            _ => return None
+            wacc::Value::Str {
+                hint: _,
+                data: ref s,
+            } => Value::Str(s.to_string()),
+            wacc::Value::Bin {
+                hint: _,
+                data: ref v,
+            } => Value::Data(v.to_vec()),
+            _ => return None,
         };
         match self.kvp.insert(k, v) {
-            Some(Value::Nil) => Some(wacc::Value::Bin { hint: key.to_string(), data: Vec::default() }),
-            Some(Value::Str(s)) => Some(wacc::Value::Str { hint: key.to_string(), data: s }),
-            Some(Value::Data(v)) => Some(wacc::Value::Bin { hint: key.to_string(), data: v }),
-            None => None
+            Some(Value::Nil) => Some(wacc::Value::Bin {
+                hint: key.to_string(),
+                data: Vec::default().into(),
+            }),
+            Some(Value::Str(s)) => Some(wacc::Value::Str {
+                hint: key.to_string(),
+                data: s.into(),
+            }),
+            Some(Value::Data(v)) => Some(wacc::Value::Bin {
+                hint: key.to_string(),
+                data: v.into(),
+            }),
+            None => None,
         }
     }
 }
@@ -77,17 +99,17 @@ impl<'a> Kvp<'a> {
     }
 
     /// sets the entry to look for values in as well
-    pub fn set_entry(&mut self, entry: &'a Entry) -> Result<Option<u64>, Error> {
+    pub fn set_entry(&mut self, entry: &'a Entry) -> Result<Option<SeqNo>, Error> {
         match self.entry {
             // if this is the first entry processed, make sure the entry's seqno is 0
             None => {
-                if entry.seqno() != 0 {
+                if entry.seqno() != SeqNo::FIRST {
                     return Err(KvpError::NonZeroSeqNo.into());
                 }
             }
             // if the seqno is > 0, make sure the entry's seqno is seqno + 1
             Some(e) => {
-                if entry.seqno() != e.seqno + 1 {
+                if entry.seqno() != e.seqno.next() {
                     return Err(KvpError::InvalidSeqNo.into());
                 }
             }
@@ -111,12 +133,12 @@ impl<'a> Kvp<'a> {
     }
 
     /// get the seqno of the current entry if there is one
-    pub fn seqno(&self) -> Option<u64> {
+    pub fn seqno(&self) -> Option<SeqNo> {
         self.entry.map(|entry| entry.seqno)
     }
 
     /// function to undo the last apply_entry
-    pub fn undo_entry(&mut self) -> Result<Option<u64>, Error> {
+    pub fn undo_entry(&mut self) -> Result<Option<SeqNo>, Error> {
         // revert the kvp state to just before this entry was added
         if let Some((entry, kvp)) = self.undo.pop() {
             self.kvp = kvp;
@@ -164,13 +186,23 @@ impl<'a> Kvp<'a> {
     pub fn undo_len(&self) -> usize {
         self.undo.len()
     }
+
+    /// Returns a new Kvp with the same key-value pairs but without the entry reference.
+    /// This is needed for wasmtime 37 compatibility where we need 'static lifetimes.
+    pub fn without_entry(&self) -> Kvp<'static> {
+        Kvp {
+            kvp: self.kvp.clone(),
+            entry: None,
+            undo: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{entry, Script};
-    use multicid::Vlad;
+    use multi_vlad::Vlad;
 
     #[test]
     fn test_default() {
@@ -197,7 +229,7 @@ mod tests {
             .with_vlad(&Vlad::default())
             .add_lock(&Script::default())
             .with_unlock(&Script::default())
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
         let _ = p.set_entry(&e1).unwrap();
@@ -207,7 +239,7 @@ mod tests {
             .with_vlad(&Vlad::default())
             .add_lock(&Script::default())
             .with_unlock(&Script::default())
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
         // this panics because the seqno of e1 is the same
@@ -225,21 +257,17 @@ mod tests {
                 "/one".try_into().unwrap(),
                 Value::Str("foo".to_string()),
             ))
-            .add_op(&Op::Noop(
-                "/foo".try_into().unwrap(),
-            ))
+            .add_op(&Op::Noop("/foo".try_into().unwrap()))
             .add_op(&Op::Update(
                 "/two".try_into().unwrap(),
                 Value::Str("bar".to_string()),
             ))
-            .add_op(&Op::Noop(
-                "/bar".try_into().unwrap(),
-            ))
+            .add_op(&Op::Noop("/bar".try_into().unwrap()))
             .add_op(&Op::Update(
                 "/three".try_into().unwrap(),
                 Value::Str("baz".to_string()),
             ))
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
         let mut p = Kvp::default();
@@ -248,7 +276,7 @@ mod tests {
         let mut seqno = p.set_entry(&entry).unwrap();
         p.apply_entry_ops(&entry).unwrap();
 
-        assert_eq!(seqno, Some(0));
+        assert_eq!(seqno, Some(SeqNo::FIRST));
         assert_eq!(p.len(), 3);
         assert_eq!(p.undo_len(), 1);
         assert_eq!(
@@ -289,7 +317,7 @@ mod tests {
                 Value::Str("baz".to_string()),
             ))
             .try_build(|e| {
-                e.proof = Vec::default();
+                e.proofs = std::collections::BTreeMap::new();
                 Ok(())
             })
             .unwrap();
@@ -333,7 +361,7 @@ mod tests {
             ))
             .add_op(&Op::Noop)
             .try_build(|e| {
-                e.proof = Vec::default();
+                e.proofs = std::collections::BTreeMap::new();
                 Ok(())
             })
             .unwrap();
@@ -376,7 +404,7 @@ mod tests {
             ))
             .add_op(&Op::Delete("five".to_string()))
             .try_build(|e| {
-                e.proof = Vec::default();
+                e.proofs = std::collections::BTreeMap::new();
                 Ok(())
             })
             .unwrap();
@@ -439,7 +467,7 @@ mod tests {
                 Value::Str("baz".to_string()),
             ))
             .try_build(|e| {
-                e.proof = Vec::default();
+                e.proofs = std::collections::BTreeMap::new();
                 Ok(())
             })
             .unwrap();
@@ -485,7 +513,7 @@ mod tests {
             ))
             .add_op(&Op::Noop)
             .try_build(|e| {
-                e.proof = Vec::default();
+                e.proofs = std::collections::BTreeMap::new();
                 Ok(())
             })
             .unwrap();
@@ -554,7 +582,7 @@ mod tests {
             ))
             .add_op(&Op::Delete("five".to_string()))
             .try_build(|e| {
-                e.proof = Vec::default();
+                e.proofs = std::collections::BTreeMap::new();
                 Ok(())
             })
             .unwrap();

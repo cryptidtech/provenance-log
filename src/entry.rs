@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{error::EntryError, Error, Key, Lipmaa, Op, Script, Value};
+use crate::{error::EntryError, Error, Key, Op, Script, SeqNo, Value, Version};
 use core::fmt;
-use multibase::Base;
-use multicid::{cid, Cid, EncodedCid, Vlad};
-use multicodec::Codec;
-use multihash::mh;
-use multitrait::{Null, TryDecodeFrom};
-use multiutil::{BaseEncoded, CodecInfo, EncodingInfo, Varbytes, Varuint};
-use std::{convert::From, cmp::Ordering};
+use multi_base::Base;
+use multi_cid::{cid, Cid, EncodedCid};
+use multi_codec::Codec;
+use multi_hash::mh;
+use multi_trait::{EncodeInto, EncodeIntoBuffer, Null, TryDecodeFrom};
+use multi_util::{BaseEncoded, CodecInfo, EncodingInfo, Varbytes, Varuint};
+use multi_vlad::Vlad;
+use once_cell::sync::OnceCell;
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashSet},
+    convert::From,
+};
 
 /// the multicodec sigil for a provenance entry
 pub const SIGIL: Codec = Codec::ProvenanceLogEntry;
@@ -16,27 +22,95 @@ pub const SIGIL: Codec = Codec::ProvenanceLogEntry;
 pub const ENTRY_VERSION: u64 = 1;
 
 /// the list of keys for the fields in an entry
+///
+/// Note: individual proofs are accessed via dynamic `/proofs/<name>` paths,
+/// not through this static list.
 pub const ENTRY_FIELDS: &[&str] = &[
     "/entry/",
-    "/entry/verions",
+    "/entry/version",
     "/entry/vlad",
     "/entry/prev",
     "/entry/lipmaa",
     "/entry/seqno",
     "/entry/ops",
     "/entry/unlock",
-    "/entry/proof",
 ];
 
 /// a base encoded provenance entry
 pub type EncodedEntry = BaseEncoded<Entry>;
 
-/// An Entry represents a single state change associated with a key/value pair
-/// in a provenance log.
+/// An Entry represents a single state change in a provenance log
+///
+/// Each entry contains:
+/// - **Operations** (`ops`): State mutations (create, update, delete) on the virtual key-value namespace
+/// - **Lock Scripts** (`locks`): WebAssembly scripts that authorize future entries
+/// - **Unlock Script** (`unlock`): A WebAssembly script that proves authorization from the previous entry
+/// - **Proof** (`proof`): Cryptographic proof data (signatures, ZK proofs, hash preimages) used by scripts
+/// - **Links**: Content-addressed references to previous entries and Lipmaa back-links
+///
+/// # Verification Process
+///
+/// When an entry is verified:
+/// 1. The unlock script executes, setting up stack state and proving authorization
+/// 2. The previous entry's lock scripts execute, checking the unlock script's proof
+/// 3. If verification succeeds, the entry's operations are applied to the key-value store
+/// 4. The entry's lock scripts become the authorization for the next entry
+///
+/// # Thread Safety
+///
+/// `Entry` is `Send + Sync`. The internal `cached_cid` field uses `OnceCell` for thread-safe
+/// lazy initialization of the computed CID.
+///
+/// # Builder Pattern
+///
+/// Entries should be constructed using the [`Builder`] pattern, which ensures all required
+/// fields are present and handles proof generation:
+///
+/// ```rust,no_run
+/// use provenance_log::{Entry, entry, SeqNo, Script, Op, Key, Value};
+/// use multi_vlad::Vlad;
+///
+/// let vlad = Vlad::default();
+/// let entry = entry::Builder::default()
+///     .with_vlad(&vlad)
+///     .with_seqno(SeqNo::FIRST)
+///     .with_unlock(&Script::default())
+///     .add_op(&Op::Update(
+///         Key::try_from("/data").unwrap(),
+///         Value::Str("value".into())
+///     ))
+///     .try_build(|entry| {
+///         // Generate named proofs (signatures, etc.) from the entry
+///         Ok(std::collections::BTreeMap::new())
+///     })
+///     .unwrap();
+/// ```
+///
+/// # Examples
+///
+/// Accessing entry data:
+///
+/// ```rust,no_run
+/// # use provenance_log::{Entry, SeqNo};
+/// # let entry = Entry::default();
+/// // Get the sequence number
+/// let seqno: SeqNo = entry.seqno();
+///
+/// // Get the CID of this entry
+/// let cid = entry.cid();
+///
+/// // Iterate over operations
+/// for op in entry.ops() {
+///     println!("Operation: {:?}", op);
+/// }
+///
+/// // Get the entry's branch context (longest common key prefix)
+/// let context = entry.context();
+/// ```
 #[derive(Clone, Eq, PartialEq)]
 pub struct Entry {
     /// the entry version
-    pub(crate) version: u64,
+    pub(crate) version: Version,
     /// long lived address for this provenance log
     pub(crate) vlad: Vlad,
     /// link to the previous entry
@@ -44,20 +118,22 @@ pub struct Entry {
     /// lipmaa link provides O(log n) traversal between entries
     pub(crate) lipmaa: Cid,
     /// sequence numbering of entries
-    pub(crate) seqno: u64,
+    pub(crate) seqno: SeqNo,
     /// operations on the namespace in this entry
     pub(crate) ops: Vec<Op>,
     /// the lock scripts associated with keys
     pub(crate) locks: Vec<Script>,
     /// the script that unlocks this entry, must include all fields except itself
     pub(crate) unlock: Script,
-    /// the proof that this entry is valid, this can be a digital signature of
-    /// some kind or a zkp or hash preimage. it is the proof data referenced by
-    /// the unlock script and required by the lock script in the previous
-    /// Entry. this data is generated using the Entry Builder by passing a
-    /// closure to the `try_build` function that gets called with the complete
-    /// serialized Entry to generate this data.
-    pub(crate) proof: Vec<u8>,
+    /// named proofs that this entry is valid. each proof is a named cryptographic
+    /// proof (digital signature, zkp, hash preimage, etc.) referenced by the
+    /// unlock script and required by the lock script in the previous Entry.
+    /// this data is generated using the Entry Builder by passing a closure to
+    /// the `try_build` function that gets called with the complete serialized
+    /// Entry to generate this data.
+    pub(crate) proofs: BTreeMap<String, Vec<u8>>,
+    /// Cached CID to avoid recomputation (not serialized)
+    pub(crate) cached_cid: OnceCell<Cid>,
 }
 
 impl Ord for Entry {
@@ -101,12 +177,16 @@ impl wacc::Pairs for Entry {
             Err(_) => return None,
         };
         match self.get_value(&key) {
-            Some(value) => {
-                match value {
-                    Value::Data(data) => Some(wacc::Value::Bin{ hint: key.to_string(), data }),
-                    Value::Str(s) => Some(wacc::Value::Str{ hint: key.to_string(), data: s }),
-                    Value::Nil => None,
-                }
+            Some(value) => match value {
+                Value::Data(data) => Some(wacc::Value::Bin {
+                    hint: key.to_string(),
+                    data: data.into(),
+                }),
+                Value::Str(s) => Some(wacc::Value::Str {
+                    hint: key.to_string(),
+                    data: s.into(),
+                }),
+                Value::Nil => None,
             },
             None => None,
         }
@@ -120,35 +200,53 @@ impl wacc::Pairs for Entry {
 impl From<Entry> for Vec<u8> {
     fn from(val: Entry) -> Self {
         let mut v = Vec::default();
-        // add in the entry sigil
-        v.append(&mut SIGIL.into());
-        // add in the version
-        v.append(&mut Varuint(val.version).into());
-        // add in the vlad
-        v.append(&mut val.vlad.clone().into());
-        // add in the prev link
-        v.append(&mut val.prev.clone().into());
-        // add in the lipmaa link
-        v.append(&mut val.lipmaa.clone().into());
-        // add in the seqno
-        v.append(&mut Varuint(val.seqno).into());
-        // add in the number of ops
-        v.append(&mut Varuint(val.ops.len()).into());
-        // add in the ops
-        val.ops
-            .iter()
-            .for_each(|op| v.append(&mut op.clone().into()));
-        // first add the number of keys
-        v.append(&mut Varuint(val.locks.len()).into());
-        // add in the locks
-        val.locks
-            .iter()
-            .for_each(|script| v.append(&mut script.clone().into()));
-        // add in the unlock script
-        v.append(&mut val.unlock.clone().into());
-        // add in the proof
-        v.append(&mut Varbytes(val.proof.clone()).into());
+        val.encode_into_buffer(&mut v);
         v
+    }
+}
+
+impl EncodeIntoBuffer for Entry {
+    fn encode_into_buffer(&self, v: &mut Vec<u8>) {
+        // add in the entry sigil
+        SIGIL.encode_into_buffer(v);
+        // add in the version
+        Varuint(self.version.as_u64()).encode_into_buffer(v);
+        // add in the vlad
+        self.vlad.encode_into_buffer(v);
+        // add in the prev link
+        self.prev.encode_into_buffer(v);
+        // add in the lipmaa link
+        self.lipmaa.encode_into_buffer(v);
+        // add in the seqno
+        Varuint(self.seqno.as_u64()).encode_into_buffer(v);
+        // add in the number of ops
+        Varuint(self.ops.len()).encode_into_buffer(v);
+        // add in the ops
+        self.ops.iter().for_each(|op| op.encode_into_buffer(v));
+        // first add the number of keys
+        Varuint(self.locks.len()).encode_into_buffer(v);
+        // add in the locks
+        self.locks
+            .iter()
+            .for_each(|script| script.encode_into_buffer(v));
+        // add in the unlock script
+        self.unlock.encode_into_buffer(v);
+        // add in the proofs map
+        Varuint(self.proofs.len()).encode_into_buffer(v);
+        for (name, sig_bytes) in &self.proofs {
+            name.len().encode_into_buffer(v);
+            v.extend_from_slice(name.as_bytes());
+            sig_bytes.len().encode_into_buffer(v);
+            v.extend_from_slice(sig_bytes);
+        }
+    }
+}
+
+impl EncodeInto for Entry {
+    fn encode_into(&self) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        self.encode_into_buffer(&mut buffer);
+        buffer
     }
 }
 
@@ -172,8 +270,8 @@ impl<'a> TryDecodeFrom<'a> for Entry {
         }
         // decode the version
         let (version, ptr) = Varuint::<u64>::try_decode_from(ptr)?;
-        let version = version.to_inner();
-        if version != ENTRY_VERSION {
+        let version = Version::new(version.to_inner());
+        if !version.is_supported() {
             return Err(EntryError::InvalidVersion(1).into());
         }
         // decode the vlad
@@ -184,44 +282,79 @@ impl<'a> TryDecodeFrom<'a> for Entry {
         let (lipmaa, ptr) = Cid::try_decode_from(ptr)?;
         // decode the seqno
         let (seqno, ptr) = Varuint::<u64>::try_decode_from(ptr)?;
-        let seqno = seqno.to_inner();
+        let seqno = SeqNo::new(seqno.to_inner());
         // decode the number of ops
         let (num_ops, ptr) = Varuint::<usize>::try_decode_from(ptr)?;
+        if *num_ops > crate::limits::MAX_OPS_PER_ENTRY {
+            return Err(EntryError::TooManyOps(*num_ops, crate::limits::MAX_OPS_PER_ENTRY).into());
+        }
         // decode the ops
-        let (ops, ptr) = match *num_ops {
-            0 => (Vec::default(), ptr),
-            _ => {
-                let mut ops = Vec::with_capacity(*num_ops);
-                let mut p = ptr;
-                for _ in 0..*num_ops {
-                    let (op, ptr) = Op::try_decode_from(p)?;
-                    ops.push(op);
-                    p = ptr;
-                }
-                (ops, p)
+        let (ops, ptr) = if *num_ops == 0 {
+            (Vec::default(), ptr)
+        } else {
+            let mut ops = Vec::with_capacity(*num_ops);
+            let mut p = ptr;
+            for _ in 0..*num_ops {
+                let (op, ptr) = Op::try_decode_from(p)?;
+                ops.push(op);
+                p = ptr;
             }
+            (ops, p)
         };
         // decode the number of lock scripts
         let (num_locks, ptr) = Varuint::<usize>::try_decode_from(ptr)?;
+        if *num_locks > crate::limits::MAX_LOCKS_PER_ENTRY {
+            return Err(
+                EntryError::TooManyLocks(*num_locks, crate::limits::MAX_LOCKS_PER_ENTRY).into(),
+            );
+        }
         // decode the ops
-        let (locks, ptr) = match *num_locks {
-            0 => (Vec::default(), ptr),
-            _ => {
-                let mut locks = Vec::with_capacity(*num_locks);
-                let mut p = ptr;
-                for _ in 0..*num_locks {
-                    let (lock, ptr) = Script::try_decode_from(p)?;
-                    locks.push(lock);
-                    p = ptr;
-                }
-                (locks, p)
+        let (locks, ptr) = if *num_locks == 0 {
+            (Vec::default(), ptr)
+        } else {
+            let mut locks = Vec::with_capacity(*num_locks);
+            let mut p = ptr;
+            for _ in 0..*num_locks {
+                let (lock, ptr) = Script::try_decode_from(p)?;
+                locks.push(lock);
+                p = ptr;
             }
+            (locks, p)
         };
         // decode the unlock script
         let (unlock, ptr) = Script::try_decode_from(ptr)?;
-        // decode the proof
-        let (proof, ptr) = Varbytes::try_decode_from(ptr)?;
-        let proof = proof.to_inner();
+        // decode the proofs map
+        let (num_proofs, ptr) = Varuint::<usize>::try_decode_from(ptr)?;
+        if *num_proofs > crate::limits::MAX_PROOFS_PER_ENTRY {
+            return Err(EntryError::TooManyProofs(
+                *num_proofs,
+                crate::limits::MAX_PROOFS_PER_ENTRY,
+            )
+            .into());
+        }
+        let (proofs, ptr) = {
+            let mut proofs = BTreeMap::new();
+            let mut p = ptr;
+            for _ in 0..*num_proofs {
+                let (name_bytes, ptr) = Varbytes::try_decode_from(p)?;
+                let name = String::from_utf8(name_bytes.to_inner())?;
+                if name.is_empty() {
+                    return Err(EntryError::InvalidProofName.into());
+                }
+                let (proof_bytes, ptr) = Varbytes::try_decode_from(ptr)?;
+                let proof = proof_bytes.to_inner();
+                if proof.len() > crate::limits::MAX_PROOF_SIZE {
+                    return Err(EntryError::ProofTooLarge(
+                        proof.len(),
+                        crate::limits::MAX_PROOF_SIZE,
+                    )
+                    .into());
+                }
+                proofs.insert(name, proof);
+                p = ptr;
+            }
+            (proofs, p)
+        };
 
         Ok((
             Self {
@@ -233,7 +366,8 @@ impl<'a> TryDecodeFrom<'a> for Entry {
                 ops,
                 locks,
                 unlock,
-                proof,
+                proofs,
+                cached_cid: OnceCell::new(),
             },
             ptr,
         ))
@@ -257,10 +391,10 @@ impl Default for Entry {
     fn default() -> Self {
         Builder::default()
             .with_vlad(&Vlad::default())
-            .with_seqno(0)
+            .with_seqno(SeqNo::FIRST)
             .with_unlock(&Script::default())
-            .try_build(|_| Ok(Vec::default()))
-            .unwrap()
+            .try_build(|_| Ok(BTreeMap::new()))
+            .expect("hardcoded default entry components are valid")
     }
 }
 
@@ -281,7 +415,7 @@ impl Iterator for Iter<'_> {
                 };
                 self.entry.get_value(&key).map(|value| (key, value))
             }
-            None => None
+            None => None,
         }
     }
 }
@@ -291,7 +425,7 @@ impl Entry {
     pub fn iter(&self) -> impl Iterator<Item = (Key, Value)> + '_ {
         Iter {
             iter: ENTRY_FIELDS.iter(),
-            entry: self
+            entry: self,
         }
     }
 
@@ -300,14 +434,14 @@ impl Entry {
         match key.as_str() {
             "/entry/" => {
                 let mut e = self.clone();
-                e.proof = Vec::default();
+                e.proofs = BTreeMap::new();
                 Some(Value::Data(e.into()))
             }
-            "/entry/version" => Some(Value::Data(Varuint(self.version).into())),
+            "/entry/version" => Some(Value::Data(Varuint(self.version.as_u64()).into())),
             "/entry/vlad" => Some(Value::Data(self.vlad.clone().into())),
             "/entry/prev" => Some(Value::Data(self.prev.clone().into())),
             "/entry/lipmaa" => Some(Value::Data(self.lipmaa.clone().into())),
-            "/entry/seqno" => Some(Value::Data(Varuint(self.seqno).into())),
+            "/entry/seqno" => Some(Value::Data(Varuint(self.seqno.as_u64()).into())),
             "/entry/ops" => {
                 let mut v = Vec::new();
                 v.append(&mut Varuint(self.ops.len()).into());
@@ -316,10 +450,13 @@ impl Entry {
                     .for_each(|op| v.append(&mut op.clone().into()));
                 Some(Value::Data(v))
             }
-            // TODO: make this accessible via an iterator
+            // Deferred: make this accessible via an iterator
             //"/entry/locks" => Some(Value::Data(self.locks.clone().into())),
             "/entry/unlock" => Some(Value::Data(self.unlock.clone().into())),
-            "/entry/proof" => Some(Value::Data(self.proof.clone())),
+            key if key.starts_with("/proofs/") => {
+                let name = &key["/proofs/".len()..];
+                self.proofs.get(name).map(|v| Value::Data(v.clone()))
+            }
             _ => None,
         }
     }
@@ -330,7 +467,7 @@ impl Entry {
     }
 
     /// Get the sequence number of the entry
-    pub fn seqno(&self) -> u64 {
+    pub fn seqno(&self) -> SeqNo {
         self.seqno
     }
 
@@ -344,24 +481,34 @@ impl Entry {
         self.ops.iter()
     }
 
-    /// get an iterator over the lock scripts 
+    /// get an iterator over the lock scripts
     pub fn locks(&self) -> impl Iterator<Item = &Script> {
         self.locks.iter()
     }
 
+    /// get the unlock script that proves who authored this entry
+    pub fn unlock(&self) -> &Script {
+        &self.unlock
+    }
+
     /// get the cid of this entry
     pub fn cid(&self) -> Cid {
-        let v: Vec<u8> = self.clone().into();
-        cid::Builder::new(Codec::Cidv1)
-            .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha3512, v.as_slice())
-                    .unwrap()
+        self.cached_cid
+            .get_or_init(|| {
+                let mut v = Vec::new();
+                self.encode_into_buffer(&mut v);
+                cid::Builder::new(Codec::Cidv1)
+                    .with_target_codec(Codec::DagCbor)
+                    .with_hash(
+                        &mh::Builder::new_from_bytes(Codec::Blake3, v.as_slice())
+                            .expect("Blake3 hashing of entry bytes should never fail")
+                            .try_build()
+                            .expect("Multihash building should never fail with valid Blake3 hash"),
+                    )
                     .try_build()
-                    .unwrap(),
-            )
-            .try_build()
-            .unwrap()
+                    .expect("CID building should never fail with valid hash and codec")
+            })
+            .clone()
     }
 
     /// get the longest common branch context from the ops
@@ -369,8 +516,14 @@ impl Entry {
         if self.ops.is_empty() {
             Key::default()
         } else {
-            // get the first branch
-            let mut ctx = self.ops.first().unwrap().clone().path().branch();
+            // get the first branch - safe because we checked is_empty() above
+            let mut ctx = self
+                .ops
+                .first()
+                .expect("ops vector should not be empty after is_empty() check")
+                .clone()
+                .path()
+                .branch();
 
             // got through the rest looking for the shortest one
             for k in self.ops.iter() {
@@ -385,62 +538,97 @@ impl Entry {
     /// at the path for each op and building the valid set of lock scripts that govern all of teh
     /// branches and leaves that are modified in the set of mutation operations.
     pub fn sort_locks(&self, locks: &[Script]) -> Result<Vec<Script>, Error> {
-        // the order of these lock scripts must be preservied in the final list of lock scripts
         let locks_in = locks.to_owned();
-        // this is the set of lock scripts that govern all of the ops in the order established by
-        // the lock array passed into this function
-        let mut locks_tmp: Vec<Script> = Vec::default();
-        // if there aren't any mutation ops, then "touch" the root branch "/" to force the root
-        // lock script to execute
+        let mut locks_set: HashSet<Script> = HashSet::new();
+
         let mut ops = match self.ops.len() {
             0 => vec![Op::Noop(Key::try_from("/")?)],
-            _ => self.ops.clone()
+            _ => self.ops.clone(),
         };
-        // if this entry changes the lock scripts from the previous entry then "touch" the root
-        // branch "/" to force the root lock script to execute
+
         if locks_in != self.locks {
             ops.push(Op::Noop(Key::try_from("/")?));
         }
 
-        // go through the set of mutation operations to figure out which lock scripts govern the
-        // proposed mutations
-        for op in ops {
-            //println!("checking op {}", op.path());
+        // Build set of applicable locks (O(ops × locks) instead of O(ops × locks × tmp))
+        for op in &ops {
             for lock in &locks_in {
-                // if the lock is a leaf, then parent_of is true if the op path is teh same
-                // if the lock is a branch, then parent_of is true if the other path is a child
-                // of the branch
-                if lock.path().parent_of(&op.path()) && !locks_tmp.contains(lock) {
-                    //println!("adding lock {} because of op {}", lock.path(), op.path());
-                    locks_tmp.push(lock.clone());
+                if lock.path().parent_of(&op.path()) {
+                    locks_set.insert(lock.clone());
                 }
             }
-        } 
-
-        // now that we have all of the locks that govern one or more of the ops, we need to go
-        // through the locks_in and if each lock is in the locks_tmp, it gets added to the
-        // locks_out so that the order in locks_in is preserved
-        let mut locks_out: Vec<Script> = Vec::default();
-        for lock in &locks_in {
-            if locks_tmp.contains(lock) && !locks_out.contains(lock) {
-                locks_out.push(lock.clone());
-            }
         }
-        // this puts the lock scripts in the order from root to leaf by their key-paths. this
-        // is a stable sort that preserves ordering of locks that govern the same path.
+
+        // Preserve original order while filtering
+        let mut locks_out: Vec<Script> = locks_in
+            .into_iter()
+            .filter(|lock| locks_set.contains(lock))
+            .collect();
+
         locks_out.sort();
         Ok(locks_out)
     }
 }
 
 /// Builder for Entry objects
+///
+/// The `Builder` pattern ensures all required fields are present before constructing an `Entry`.
+/// It also handles the proof generation process, allowing you to sign or otherwise prove the
+/// entry's contents.
+///
+/// # Required Fields
+///
+/// - **vlad**: The log's VLAD identifier (set via `with_vlad`)
+/// - **unlock**: The unlock script (set via `with_unlock`)
+/// - **seqno**: Sequence number (optional, defaults to 0)
+///
+/// # Proof Generation
+///
+/// The `try_build` method takes a closure that receives a mutable reference to the entry
+/// (with all fields except `proof` populated) and must return a `Vec<u8>` containing the
+/// proof data:
+///
+/// ```rust,no_run
+/// # use provenance_log::{entry, SeqNo, Script};
+/// # use multi_vlad::Vlad;
+/// # use multi_key::Multikey;
+/// let vlad = Vlad::default();
+/// let signing_key = Multikey::default(); // Your signing key
+///
+/// let entry = entry::Builder::default()
+///     .with_vlad(&vlad)
+///     .with_seqno(SeqNo::FIRST)
+///     .with_unlock(&Script::default())
+///     .try_build(|entry| {
+///         // Serialize the entry
+///         let entry_bytes: Vec<u8> = entry.clone().into();
+///
+///         // Sign it and return named proofs
+///         // let signature = signing_key.sign(&entry_bytes)?;
+///         Ok(std::collections::BTreeMap::new()) // Return named proofs
+///     })
+///     .unwrap();
+/// ```
+///
+/// # Chaining Entries
+///
+/// To build a subsequent entry, use `Builder::from(&previous_entry)`:
+///
+/// ```rust,no_run
+/// # use provenance_log::{Entry, entry, Script};
+/// # let previous_entry = Entry::default();
+/// let next_entry = entry::Builder::from(&previous_entry)
+///     .with_unlock(&Script::default())
+///     .try_build(|_| Ok(std::collections::BTreeMap::new()))
+///     .unwrap();
+/// ```
 #[derive(Clone)]
 pub struct Builder {
-    version: u64,
+    version: Version,
     vlad: Option<Vlad>,
     prev: Option<Cid>,
     lipmaa: Option<Cid>,
-    seqno: Option<u64>,
+    seqno: Option<SeqNo>,
     ops: Vec<Op>,
     locks: Vec<Script>,
     unlock: Option<Script>,
@@ -449,7 +637,7 @@ pub struct Builder {
 impl Default for Builder {
     fn default() -> Self {
         Self {
-            version: ENTRY_VERSION,
+            version: Version::CURRENT,
             vlad: None,
             prev: None,
             lipmaa: None,
@@ -465,11 +653,11 @@ impl Default for Builder {
 impl From<&Entry> for Builder {
     fn from(entry: &Entry) -> Self {
         Self {
-            version: ENTRY_VERSION,
+            version: Version::CURRENT,
             vlad: Some(entry.vlad()),
             prev: Some(entry.cid()),
             lipmaa: None,
-            seqno: Some(entry.seqno() + 1),
+            seqno: Some(entry.seqno().next()),
             ops: Vec::default(),
             locks: entry.locks.clone(),
             unlock: None,
@@ -491,7 +679,7 @@ impl Builder {
     }
 
     /// Set the sequence number
-    pub fn with_seqno(mut self, seqno: u64) -> Self {
+    pub fn with_seqno(mut self, seqno: SeqNo) -> Self {
         self.seqno = Some(seqno);
         self
     }
@@ -532,16 +720,16 @@ impl Builder {
         self
     }
 
-    /// Build the Entry from the provided data and then call the `gen_proof`
-    /// closure to generate a lock script and proof
-    pub fn try_build<F>(&self, mut gen_proof: F) -> Result<Entry, Error>
+    /// Build the Entry from the provided data and then call the `gen_proofs`
+    /// closure to generate named proofs (signatures, ZK proofs, etc.)
+    pub fn try_build<F>(&self, mut gen_proofs: F) -> Result<Entry, Error>
     where
-        F: FnMut(&mut Entry) -> Result<Vec<u8>, Error>,
+        F: FnMut(&mut Entry) -> Result<BTreeMap<String, Vec<u8>>, Error>,
     {
         let version = self.version;
         let vlad = self.vlad.clone().ok_or(EntryError::MissingVlad)?;
         let prev = self.prev.clone().unwrap_or_else(Cid::null);
-        let seqno = self.seqno.unwrap_or_default();
+        let seqno = self.seqno.unwrap_or(SeqNo::FIRST);
         let lipmaa = if seqno.is_lipmaa() {
             self.lipmaa.clone().ok_or(EntryError::MissingLipmaaLink)?
         } else {
@@ -549,7 +737,7 @@ impl Builder {
         };
         let unlock = self.unlock.clone().ok_or(EntryError::MissingUnlockScript)?;
 
-        // first construct an entry with every field except the proof
+        // first construct an entry with every field except the proofs
         let mut entry = Entry {
             version,
             vlad,
@@ -559,11 +747,12 @@ impl Builder {
             ops: self.ops.clone(),
             locks: self.locks.clone(),
             unlock,
-            proof: Vec::default(),
+            proofs: BTreeMap::new(),
+            cached_cid: OnceCell::new(),
         };
 
-        // call the gen_proof closure to create and store the proof data
-        entry.proof = gen_proof(&mut entry)?;
+        // call the gen_proofs closure to create and store the proof data
+        entry.proofs = gen_proofs(&mut entry)?;
 
         Ok(entry)
     }
@@ -573,8 +762,8 @@ impl Builder {
 mod tests {
     use super::*;
     use crate::{script, Value};
-    use multicid::vlad;
-    use multikey::nonce;
+    use multi_key::EncodedMultikey;
+    use multi_vlad::vlad;
 
     #[test]
     fn test_builder() {
@@ -587,10 +776,10 @@ mod tests {
             .add_op(&op)
             .add_op(&op)
             .add_op(&op)
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
-        assert_eq!(entry.seqno(), 0);
+        assert_eq!(entry.seqno(), SeqNo::FIRST);
         for op in entry.ops() {
             assert_eq!(Op::default(), op.clone());
         }
@@ -608,10 +797,10 @@ mod tests {
             .add_op(&op)
             .add_op(&op)
             .add_op(&op)
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
-        assert_eq!(entry.seqno(), 0);
+        assert_eq!(entry.seqno(), SeqNo::FIRST);
         for op in entry.ops() {
             assert_eq!(Op::default(), op.clone());
         }
@@ -622,9 +811,9 @@ mod tests {
             .add_op(&op)
             .add_op(&op)
             .add_op(&op)
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
-        assert_eq!(entry2.seqno(), 1);
+        assert_eq!(entry2.seqno(), SeqNo::new(1));
         for op in entry2.ops() {
             assert_eq!(Op::default(), op.clone());
         }
@@ -642,10 +831,10 @@ mod tests {
             .add_op(&op)
             .add_op(&op)
             .add_op(&op)
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
-        assert_eq!(entry.seqno(), 0);
+        assert_eq!(entry.seqno(), SeqNo::FIRST);
         for op in entry.ops() {
             assert_eq!(Op::default(), op.clone());
         }
@@ -664,7 +853,9 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
@@ -672,39 +863,49 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
         let locks_in1: Vec<Script> = vec![
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         ];
 
         // these are the same as above just in a different order which is significant
         let locks_in2: Vec<Script> = vec![
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         ];
 
         let ops: Vec<Op> = vec![
@@ -718,16 +919,19 @@ mod tests {
             .with_unlock(&script)
             .with_locks(&locks_in2) // same locks, different order
             .with_ops(&ops)
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
         // sorting/filtering the locks from the previous event. in this case they are the same
         // locks but in a different order.
         let locks_out = entry.sort_locks(&locks_in1).unwrap();
-        assert_eq!(locks_out[0],
+        assert_eq!(
+            locks_out[0],
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap());
+                .try_build()
+                .unwrap()
+        );
     }
 
     #[test]
@@ -738,7 +942,9 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
@@ -746,42 +952,48 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
         let locks_in: Vec<Script> = vec![
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         ];
 
-        let ops: Vec<Op> = vec![
-        ];
+        let ops: Vec<Op> = vec![];
 
         let entry = Builder::default()
             .with_vlad(&vlad)
             .with_unlock(&script)
             .with_ops(&ops)
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
         let locks_out = entry.sort_locks(&locks_in).unwrap();
-        assert_eq!(locks_out,
-            vec![
-                script::Builder::from_code_cid(&cid1)
-                    .with_path(&Key::default())
-                    .try_build().unwrap(),
-            ]);
+        assert_eq!(
+            locks_out,
+            vec![script::Builder::from_code_cid(&cid1)
+                .with_path(&Key::default())
+                .try_build()
+                .unwrap(),]
+        );
     }
 
     #[test]
@@ -792,7 +1004,9 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
@@ -800,23 +1014,29 @@ mod tests {
             .with_target_codec(Codec::DagCbor)
             .with_hash(
                 &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                .unwrap().try_build().unwrap()
+                    .unwrap()
+                    .try_build()
+                    .unwrap(),
             )
             .try_build()
             .unwrap();
         let locks_in: Vec<Script> = vec![
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         ];
 
         let ops: Vec<Op> = vec![
@@ -829,40 +1049,55 @@ mod tests {
             .with_vlad(&vlad)
             .with_unlock(&script)
             .with_ops(&ops)
-            .try_build(|_| Ok(Vec::default()))
+            .try_build(|_| Ok(BTreeMap::new()))
             .unwrap();
 
         let locks_out = entry.sort_locks(&locks_in).unwrap();
-        assert_eq!(locks_out[0],
+        assert_eq!(
+            locks_out[0],
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::default())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         );
-        assert_eq!(locks_out[1],
+        assert_eq!(
+            locks_out[1],
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap()
+                .try_build()
+                .unwrap()
         );
-        assert_eq!(locks_out[2],
+        assert_eq!(
+            locks_out[2],
             script::Builder::from_code_cid(&cid2)
                 .with_path(&Key::try_from("/bar/").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         );
 
-        assert_eq!(locks_out[3],
+        assert_eq!(
+            locks_out[3],
             script::Builder::from_code_cid(&cid1)
                 .with_path(&Key::try_from("/foo").unwrap())
-                .try_build().unwrap(),
+                .try_build()
+                .unwrap(),
         );
     }
     #[test]
     fn test_preimage() {
-        // build a nonce
-        let bytes = hex::decode("d15c4fb2911ae1337f102bcaf4c0088d36345b88b243968e834c5ffa17907832")
-            .unwrap();
-        let nonce = nonce::Builder::new_from_bytes(&bytes).try_build().unwrap();
+        // Create a signing key for the VLAD
+        let signing_key = EncodedMultikey::try_from(
+            "fba2480260874657374206b6579010120cbd87095dc5863fcec46a66a1d4040a73cb329f92615e165096bd50541ee71c0"
+        ).unwrap().to_inner();
+        let wasm_bytes: Vec<u8> = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 
-        // build a cid
+        let vlad = vlad::Builder::default()
+            .with_signing_key(&signing_key)
+            .with_message(&wasm_bytes)
+            .try_build()
+            .unwrap();
+
+        // build a cid for Script::Cid
         let cid = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
             .with_hash(
@@ -874,12 +1109,6 @@ mod tests {
             .try_build()
             .unwrap();
 
-        let vlad = vlad::Builder::default()
-            .with_nonce(&nonce)
-            .with_cid(&cid)
-            .try_build()
-            .unwrap();
-
         let script = Script::Cid(Key::default(), cid);
         let op = Op::Update("/move".try_into().unwrap(), Value::Str("zig!".into()));
         let entry = Builder::default()
@@ -887,18 +1116,24 @@ mod tests {
             .add_lock(&script)
             .with_unlock(&script)
             .add_op(&op)
-            .try_build(|e| Ok(e.vlad.clone().into()))
+            .try_build(|e| {
+                let vlad_bytes: Vec<u8> = e.vlad.clone().into();
+                let mut proofs = BTreeMap::new();
+                proofs.insert("primary".to_string(), vlad_bytes);
+                Ok(proofs)
+            })
             .unwrap();
 
-        assert_eq!(entry.seqno(), 0);
+        assert_eq!(entry.seqno(), SeqNo::FIRST);
         for op in entry.ops() {
             assert_eq!(
                 Op::Update("/move".try_into().unwrap(), Value::Str("zig!".into())),
                 op.clone()
             );
         }
-        //println!("preimage entry: {}", hex::encode(&entry.proof));
-        assert_eq!(entry.proof, hex::decode("8724bb2420d15c4fb2911ae1337f102bcaf4c0088d36345b88b243968e834c5ffa17907832017114405792dad96085b6076b8e4e63b578c90d0336bcaadef4f24704df866149526a1e6d23f89e218ad3f6172a7e26e6e37a3dea728e5f232e41696ad286bcca9201be").unwrap());
+        // The proof is the VLAD bytes (used as preimage for Script::Cid verification)
+        let vlad_bytes: Vec<u8> = vlad.clone().into();
+        assert_eq!(entry.proofs.get("primary").unwrap(), &vlad_bytes);
         assert_eq!(format!("{}", entry.context()), "/".to_string());
     }
 }

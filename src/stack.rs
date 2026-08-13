@@ -1,38 +1,43 @@
 // SPDX-License-Identifier: FSL-1.1
 use log::info;
 use std::fmt;
-use wacc::{Stack, vm::Value};
+use wacc::{vm::Value, Stack};
 
 /// Stack is used for both the parameter and return value stacks in the WACC vm
 #[derive(Clone, Default)]
 pub struct Stk {
-    stack: Vec<Value>
+    stack: Vec<Value>,
+}
+
+impl Stk {
+    /// Creates a new Stk from a vector of values.
+    /// This is needed for wasmtime 37 compatibility where we need to reconstruct stacks.
+    pub fn from_values(values: Vec<Value>) -> Self {
+        Stk { stack: values }
+    }
 }
 
 impl Stack for Stk {
     /// push a value onto the stack
     fn push(&mut self, value: Value) {
-        info!(" push: {:?}", &value);
+        info!(" push: {:?}", value);
         self.stack.push(value);
-        info!("stack:\n{:?}", &self);
+        info!("stack:\n{:?}", self);
     }
 
     /// remove the last top value from the stack
     fn pop(&mut self) -> Option<Value> {
-        match self.stack.pop() {
-            ref r @ Some(ref v) => {
-                info!("  pop: {:?}", &v);
-                info!("stack:\n{:?}", &self);
-                r.clone()
-            }
-            None => {
-                info!("pop from empty stack");
-                None
-            }
+        if let ref r @ Some(ref v) = self.stack.pop() {
+            info!("  pop: {:?}", v);
+            info!("stack:\n{:?}", self);
+            r.clone()
+        } else {
+            info!("pop from empty stack");
+            None
         }
     }
 
-    /// get a reference to the top value on the stack 
+    /// get a reference to the top value on the stack
     fn top(&self) -> Option<Value> {
         self.stack.last().cloned()
     }
@@ -60,18 +65,25 @@ const MAX_STR_WIDTH: usize = 32;
 
 impl fmt::Debug for Stk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let values = self.stack.iter().rev().map(|v| {
-            let mut s = format!("{:?}", v);
-            if s.len() >= MAX_STR_WIDTH {
-                let (trunc, _) = s.split_at_mut(MAX_STR_WIDTH - 1);
-                s = trunc.to_string();
-                s.push('…');
-            }
-            s
-        }).collect::<Vec<String>>();
+        let values = self
+            .stack
+            .iter()
+            .rev()
+            .map(|v| {
+                let mut s = format!("{:?}", v);
+                if s.len() >= MAX_STR_WIDTH {
+                    let (trunc, _) = s.split_at_mut(MAX_STR_WIDTH - 1);
+                    s = trunc.to_string();
+                    s.push('…');
+                }
+                s
+            })
+            .collect::<Vec<String>>();
         let mut first = true;
         let mut s = format!("       ╭─{:─<width$}─╮\n", "─", width = MAX_STR_WIDTH);
-        if !values.is_empty() {
+        if values.is_empty() {
+            s += format!(" top → │ {: ^width$} │\n", "<empty>", width = MAX_STR_WIDTH).as_str();
+        } else {
             values.iter().for_each(|l| {
                 if first {
                     s += format!(" top → │ {: ^width$} │\n", l, width = MAX_STR_WIDTH).as_str();
@@ -81,8 +93,6 @@ impl fmt::Debug for Stk {
                 }
                 s += format!("       ├─{:─<width$}─┤\n", "─", width = MAX_STR_WIDTH).as_str();
             });
-        } else {
-            s += format!(" top → │ {: ^width$} │\n", "<empty>", width = MAX_STR_WIDTH).as_str();
         }
         s += format!("       ┆ {:<width$} ┆", " ", width = MAX_STR_WIDTH).as_str();
         f.write_str(&s)
@@ -97,7 +107,7 @@ mod tests {
     #[test]
     fn test_debug_empty() {
         let s = Stk::default();
-        info!("\n{:?}", &s);
+        info!("\n{:?}", s);
     }
 
     #[test]
@@ -122,7 +132,13 @@ mod tests {
         let mut s = Stk::default();
         s.push(b"foo".to_vec().into());
         assert_eq!(s.len(), 1);
-        assert_eq!(s.top(), Some(Value::Bin { hint: "".to_string(), data: b"foo".to_vec() }));
+        assert_eq!(
+            s.top(),
+            Some(Value::Bin {
+                hint: "".into(),
+                data: b"foo".to_vec().into()
+            })
+        );
     }
 
     #[test]
@@ -130,7 +146,13 @@ mod tests {
         let mut s = Stk::default();
         s.push("foo".to_string().into());
         assert_eq!(s.len(), 1);
-        assert_eq!(s.top(), Some(Value::Str { hint: "".to_string(), data: "foo".to_string() }));
+        assert_eq!(
+            s.top(),
+            Some(Value::Str {
+                hint: "".into(),
+                data: "foo".into()
+            })
+        );
     }
 
     #[test]

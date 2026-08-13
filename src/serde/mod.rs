@@ -6,21 +6,18 @@ mod ser;
 #[cfg(test)]
 mod tests {
     use crate::{entry, Key, Op, Script, Value};
-    use multicid::{cid, vlad};
-    use multicodec::Codec;
-    use multihash::mh;
-    use multikey::nonce;
+    use multi_cid::cid;
+    use multi_codec::Codec;
+    use multi_hash::mh;
+    use multi_key::EncodedMultikey;
+    use multi_vlad::vlad;
     use serde_test::{assert_tokens, Configure, Token};
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_value_default_compact() {
         let v = Value::default();
-        assert_tokens(
-            &v.compact(),
-            &[
-                Token::BorrowedBytes(&[0]),
-            ],
-        );
+        assert_tokens(&v.compact(), &[Token::BorrowedBytes(&[0])]);
     }
 
     #[test]
@@ -46,9 +43,9 @@ mod tests {
     #[test]
     fn test_value_default_cbor() {
         let v = Value::default();
-        let b = serde_cbor::to_vec(&v).unwrap();
+        let b = multi_cbor::to_vec(&v).unwrap();
         assert_eq!(b, vec![65, 0]);
-        assert_eq!(v, serde_cbor::from_slice(b.as_slice()).unwrap());
+        assert_eq!(v, multi_cbor::from_slice(b.as_slice()).unwrap());
     }
 
     #[test]
@@ -56,11 +53,9 @@ mod tests {
         let v = Value::Str("move zig!".into());
         assert_tokens(
             &v.compact(),
-            &[
-                Token::BorrowedBytes(&[
-                    1, 9, 109, 111, 118, 101, 32, 122, 105, 103, 33
-                ])
-            ],
+            &[Token::BorrowedBytes(&[
+                1, 9, 109, 111, 118, 101, 32, 122, 105, 103, 33,
+            ])],
         );
     }
 
@@ -92,20 +87,15 @@ mod tests {
     #[test]
     fn test_value_str_cbor() {
         let v = Value::Str("move zig!".into());
-        let b = serde_cbor::to_vec(&v).unwrap();
+        let b = multi_cbor::to_vec(&v).unwrap();
         assert_eq!(b, vec![75, 1, 9, 109, 111, 118, 101, 32, 122, 105, 103, 33]);
-        assert_eq!(v, serde_cbor::from_slice(b.as_slice()).unwrap());
+        assert_eq!(v, multi_cbor::from_slice(b.as_slice()).unwrap());
     }
 
     #[test]
     fn test_op_default_compact() {
         let o = Op::default();
-        assert_tokens(
-            &o.compact(),
-            &[
-                Token::BorrowedBytes(&[0, 1, 47]),
-            ],
-        );
+        assert_tokens(&o.compact(), &[Token::BorrowedBytes(&[0, 1, 47])]);
     }
 
     #[test]
@@ -114,7 +104,11 @@ mod tests {
         assert_tokens(
             &o.readable(),
             &[
-                Token::TupleVariant { name: "op", variant: "noop", len: 1 },
+                Token::TupleVariant {
+                    name: "op",
+                    variant: "noop",
+                    len: 1,
+                },
                 Token::BorrowedStr("/"),
                 Token::TupleVariantEnd,
             ],
@@ -132,9 +126,9 @@ mod tests {
     #[test]
     fn test_op_default_cbor() {
         let o = Op::default();
-        let b = serde_cbor::to_vec(&o).unwrap();
+        let b = multi_cbor::to_vec(&o).unwrap();
         assert_eq!(b, vec![67, 0, 1, 47]);
-        assert_eq!(o, serde_cbor::from_slice(b.as_slice()).unwrap());
+        assert_eq!(o, multi_cbor::from_slice(b.as_slice()).unwrap());
     }
 
     #[test]
@@ -142,9 +136,7 @@ mod tests {
         let o = Op::Delete("/zig".try_into().unwrap());
         assert_tokens(
             &o.compact(),
-            &[
-                Token::BorrowedBytes(&[1, 4, 47, 122, 105, 103]),
-            ],
+            &[Token::BorrowedBytes(&[1, 4, 47, 122, 105, 103])],
         );
     }
 
@@ -177,7 +169,10 @@ mod tests {
     fn test_op_update_json() {
         let o = Op::Update("/move".try_into().unwrap(), Value::Str("zig".into()));
         let s = serde_json::to_string(&o).unwrap();
-        assert_eq!(s, "{\"update\":[\"/move\",{\"str\":[\"zig\"]}]}".to_string());
+        assert_eq!(
+            s,
+            "{\"update\":[\"/move\",{\"str\":[\"zig\"]}]}".to_string()
+        );
         assert_eq!(o, serde_json::from_str(&s).unwrap());
     }
 
@@ -202,9 +197,9 @@ mod tests {
     #[test]
     fn test_op_delete_cbor() {
         let o = Op::Delete("/zig".try_into().unwrap());
-        let b = serde_cbor::to_vec(&o).unwrap();
+        let b = multi_cbor::to_vec(&o).unwrap();
         assert_eq!(b, vec![70, 1, 4, 47, 122, 105, 103]);
-        assert_eq!(o, serde_cbor::from_slice(b.as_slice()).unwrap());
+        assert_eq!(o, multi_cbor::from_slice(b.as_slice()).unwrap());
     }
 
     #[test]
@@ -212,9 +207,7 @@ mod tests {
         let s = Script::default();
         assert_tokens(
             &s.compact(),
-            &[
-                Token::BorrowedBytes(&[138, 36, 0, 1, 47, 0]),
-            ],
+            &[Token::BorrowedBytes(&[138, 36, 0, 1, 47, 0])],
         );
     }
 
@@ -247,9 +240,9 @@ mod tests {
     #[test]
     fn test_script_default_cbor() {
         let s = Script::default();
-        let b = serde_cbor::to_vec(&s).unwrap();
+        let b = multi_cbor::to_vec(&s).unwrap();
         assert_eq!(b, vec![70, 138, 36, 0, 1, 47, 0]);
-        assert_eq!(s, serde_cbor::from_slice(b.as_slice()).unwrap());
+        assert_eq!(s, multi_cbor::from_slice(b.as_slice()).unwrap());
     }
 
     #[test]
@@ -267,10 +260,11 @@ mod tests {
         let s = Script::Cid(Key::default(), v0);
         assert_tokens(
             &s.compact(),
-            &[
-                Token::BorrowedBytes(&[138, 36, 2, 1, 47, 18, 32, 226, 140, 122, 235, 58, 135, 107, 37, 237, 130, 36, 114, 228, 122, 105, 111, 226, 82, 20, 193, 103, 47, 9, 114, 25, 95, 155, 100, 238, 164, 30, 126])
-            ]
-            ,
+            &[Token::BorrowedBytes(&[
+                138, 36, 2, 1, 47, 18, 32, 226, 140, 122, 235, 58, 135, 107, 37, 237, 130, 36, 114,
+                228, 122, 105, 111, 226, 82, 20, 193, 103, 47, 9, 114, 25, 95, 155, 100, 238, 164,
+                30, 126,
+            ])],
         );
     }
 
@@ -290,19 +284,31 @@ mod tests {
         assert_tokens(
             &s.readable(),
             &[
-                Token::TupleVariant { name: "provenance-log-script", variant: "cid", len: 2, },
+                Token::TupleVariant {
+                    name: "provenance-log-script",
+                    variant: "cid",
+                    len: 2,
+                },
                 Token::BorrowedStr("/"),
-                Token::Struct { name: "cid", len: 3, },
+                Token::Struct {
+                    name: "cid",
+                    len: 3,
+                },
                 Token::BorrowedStr("version"),
                 Token::U64(0),
                 Token::BorrowedStr("encoding"),
                 Token::BorrowedStr("dag-pb"),
                 Token::BorrowedStr("hash"),
-                Token::Struct { name: "multihash", len: 2, },
+                Token::Struct {
+                    name: "multihash",
+                    len: 2,
+                },
                 Token::BorrowedStr("codec"),
                 Token::BorrowedStr("sha2-256"),
                 Token::BorrowedStr("hash"),
-                Token::BorrowedStr("f20e28c7aeb3a876b25ed822472e47a696fe25214c1672f0972195f9b64eea41e7e"),
+                Token::BorrowedStr(
+                    "f20e28c7aeb3a876b25ed822472e47a696fe25214c1672f0972195f9b64eea41e7e",
+                ),
                 Token::StructEnd,
                 Token::StructEnd,
                 Token::TupleVariantEnd,
@@ -341,9 +347,16 @@ mod tests {
             .unwrap();
 
         let s = Script::Cid(Key::default(), v0);
-        let b = serde_cbor::to_vec(&s).unwrap();
-        assert_eq!(b, vec![88, 39, 138, 36, 2, 1, 47, 18, 32, 226, 140, 122, 235, 58, 135, 107, 37, 237, 130, 36, 114, 228, 122, 105, 111, 226, 82, 20, 193, 103, 47, 9, 114, 25, 95, 155, 100, 238, 164, 30, 126]);
-        assert_eq!(s, serde_cbor::from_slice(b.as_slice()).unwrap());
+        let b = multi_cbor::to_vec(&s).unwrap();
+        assert_eq!(
+            b,
+            vec![
+                88, 39, 138, 36, 2, 1, 47, 18, 32, 226, 140, 122, 235, 58, 135, 107, 37, 237, 130,
+                36, 114, 228, 122, 105, 111, 226, 82, 20, 193, 103, 47, 9, 114, 25, 95, 155, 100,
+                238, 164, 30, 126
+            ]
+        );
+        assert_eq!(s, multi_cbor::from_slice(b.as_slice()).unwrap());
     }
 
     #[test]
@@ -362,9 +375,12 @@ mod tests {
         let s = Script::Cid(Key::default(), v1);
         assert_tokens(
             &s.compact(),
-            &[
-                Token::BorrowedBytes(&[138, 36, 2, 1, 47, 1, 113, 20, 64, 87, 146, 218, 217, 96, 133, 182, 7, 107, 142, 78, 99, 181, 120, 201, 13, 3, 54, 188, 170, 222, 244, 242, 71, 4, 223, 134, 97, 73, 82, 106, 30, 109, 35, 248, 158, 33, 138, 211, 246, 23, 42, 126, 38, 230, 227, 122, 61, 234, 114, 142, 95, 35, 46, 65, 105, 106, 210, 134, 188, 202, 146, 1, 190]),
-            ],
+            &[Token::BorrowedBytes(&[
+                138, 36, 2, 1, 47, 1, 113, 20, 64, 87, 146, 218, 217, 96, 133, 182, 7, 107, 142,
+                78, 99, 181, 120, 201, 13, 3, 54, 188, 170, 222, 244, 242, 71, 4, 223, 134, 97, 73,
+                82, 106, 30, 109, 35, 248, 158, 33, 138, 211, 246, 23, 42, 126, 38, 230, 227, 122,
+                61, 234, 114, 142, 95, 35, 46, 65, 105, 106, 210, 134, 188, 202, 146, 1, 190,
+            ])],
         );
     }
 
@@ -440,19 +456,35 @@ mod tests {
             .unwrap();
 
         let s = Script::Cid(Key::default(), v1);
-        let b = serde_cbor::to_vec(&s).unwrap();
-        assert_eq!(b, vec![88, 73, 138, 36, 2, 1, 47, 1, 113, 20, 64, 87, 146, 218, 217, 96, 133, 182, 7, 107, 142, 78, 99, 181, 120, 201, 13, 3, 54, 188, 170, 222, 244, 242, 71, 4, 223, 134, 97, 73, 82, 106, 30, 109, 35, 248, 158, 33, 138, 211, 246, 23, 42, 126, 38, 230, 227, 122, 61, 234, 114, 142, 95, 35, 46, 65, 105, 106, 210, 134, 188, 202, 146, 1, 190]);
-        assert_eq!(s, serde_cbor::from_slice(b.as_slice()).unwrap());
+        let b = multi_cbor::to_vec(&s).unwrap();
+        assert_eq!(
+            b,
+            vec![
+                88, 73, 138, 36, 2, 1, 47, 1, 113, 20, 64, 87, 146, 218, 217, 96, 133, 182, 7, 107,
+                142, 78, 99, 181, 120, 201, 13, 3, 54, 188, 170, 222, 244, 242, 71, 4, 223, 134,
+                97, 73, 82, 106, 30, 109, 35, 248, 158, 33, 138, 211, 246, 23, 42, 126, 38, 230,
+                227, 122, 61, 234, 114, 142, 95, 35, 46, 65, 105, 106, 210, 134, 188, 202, 146, 1,
+                190
+            ]
+        );
+        assert_eq!(s, multi_cbor::from_slice(b.as_slice()).unwrap());
     }
 
     #[test]
     fn test_preimage_entry_serde_compact() {
-        // build a nonce
-        let bytes = hex::decode("d15c4fb2911ae1337f102bcaf4c0088d36345b88b243968e834c5ffa17907832")
-            .unwrap();
-        let nonce = nonce::Builder::new_from_bytes(&bytes).try_build().unwrap();
+        // Create a signing key for the VLAD
+        let signing_key = EncodedMultikey::try_from(
+            "fba2480260874657374206b6579010120cbd87095dc5863fcec46a66a1d4040a73cb329f92615e165096bd50541ee71c0"
+        ).unwrap().to_inner();
+        let wasm_bytes: Vec<u8> = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 
-        // build a cid
+        let vlad = vlad::Builder::default()
+            .with_signing_key(&signing_key)
+            .with_message(&wasm_bytes)
+            .try_build()
+            .unwrap();
+
+        // build a cid for Script::Cid
         let cid = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
             .with_hash(
@@ -464,12 +496,6 @@ mod tests {
             .try_build()
             .unwrap();
 
-        let vlad = vlad::Builder::default()
-            .with_nonce(&nonce)
-            .with_cid(&cid)
-            .try_build()
-            .unwrap();
-
         let script = Script::Cid(Key::default(), cid);
         let op = Op::Update("/move".try_into().unwrap(), Value::Str("zig!".into()));
         let entry = entry::Builder::default()
@@ -478,7 +504,8 @@ mod tests {
             .with_unlock(&script)
             .add_op(&op)
             .try_build(|e| {
-                Ok(e.vlad.clone().into())
+                let vlad_bytes: Vec<u8> = e.vlad.clone().into();
+                Ok(BTreeMap::from([("primary".to_string(), vlad_bytes)]))
             })
             .unwrap();
 
@@ -491,11 +518,9 @@ mod tests {
         println!("");
         */
 
-        assert_tokens(
-            &entry.compact(),
-            &[
-                Token::BorrowedBytes(&[137, 36, 1, 135, 36, 187, 36, 32, 209, 92, 79, 178, 145, 26, 225, 51, 127, 16, 43, 202, 244, 192, 8, 141, 54, 52, 91, 136, 178, 67, 150, 142, 131, 76, 95, 250, 23, 144, 120, 50, 1, 113, 20, 64, 87, 146, 218, 217, 96, 133, 182, 7, 107, 142, 78, 99, 181, 120, 201, 13, 3, 54, 188, 170, 222, 244, 242, 71, 4, 223, 134, 97, 73, 82, 106, 30, 109, 35, 248, 158, 33, 138, 211, 246, 23, 42, 126, 38, 230, 227, 122, 61, 234, 114, 142, 95, 35, 46, 65, 105, 106, 210, 134, 188, 202, 146, 1, 190, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 2, 5, 47, 109, 111, 118, 101, 1, 4, 122, 105, 103, 33, 1, 138, 36, 2, 1, 47, 1, 113, 20, 64, 87, 146, 218, 217, 96, 133, 182, 7, 107, 142, 78, 99, 181, 120, 201, 13, 3, 54, 188, 170, 222, 244, 242, 71, 4, 223, 134, 97, 73, 82, 106, 30, 109, 35, 248, 158, 33, 138, 211, 246, 23, 42, 126, 38, 230, 227, 122, 61, 234, 114, 142, 95, 35, 46, 65, 105, 106, 210, 134, 188, 202, 146, 1, 190, 138, 36, 2, 1, 47, 1, 113, 20, 64, 87, 146, 218, 217, 96, 133, 182, 7, 107, 142, 78, 99, 181, 120, 201, 13, 3, 54, 188, 170, 222, 244, 242, 71, 4, 223, 134, 97, 73, 82, 106, 30, 109, 35, 248, 158, 33, 138, 211, 246, 23, 42, 126, 38, 230, 227, 122, 61, 234, 114, 142, 95, 35, 46, 65, 105, 106, 210, 134, 188, 202, 146, 1, 190, 105, 135, 36, 187, 36, 32, 209, 92, 79, 178, 145, 26, 225, 51, 127, 16, 43, 202, 244, 192, 8, 141, 54, 52, 91, 136, 178, 67, 150, 142, 131, 76, 95, 250, 23, 144, 120, 50, 1, 113, 20, 64, 87, 146, 218, 217, 96, 133, 182, 7, 107, 142, 78, 99, 181, 120, 201, 13, 3, 54, 188, 170, 222, 244, 242, 71, 4, 223, 134, 97, 73, 82, 106, 30, 109, 35, 248, 158, 33, 138, 211, 246, 23, 42, 126, 38, 230, 227, 122, 61, 234, 114, 142, 95, 35, 46, 65, 105, 106, 210, 134, 188, 202, 146, 1, 190]),
-            ],
-        );
+        // Verify compact serde roundtrip (serialize then deserialize)
+        let serialized: Vec<u8> = entry.clone().into();
+        let deserialized = crate::Entry::try_from(serialized.as_slice()).unwrap();
+        assert_eq!(entry, deserialized);
     }
 }

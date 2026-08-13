@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{Value, ValueId};
-use multiutil::{EncodingInfo, Varbytes};
+use multi_trait::EncodeIntoBuffer;
+use multi_util::{EncodingInfo, Varbytes};
 use serde::ser::{self, SerializeTupleVariant};
 
 /// Serialize instance of [`crate::ValueId`]
@@ -12,7 +13,7 @@ impl ser::Serialize for ValueId {
         if serializer.is_human_readable() {
             serializer.serialize_str(self.as_str())
         } else {
-            Varbytes(self.clone().into()).serialize(serializer)
+            Varbytes::new(self.clone().into()).serialize(serializer)
         }
     }
 }
@@ -27,13 +28,13 @@ impl ser::Serialize for Value {
             match self {
                 Self::Nil => serializer.serialize_unit_variant(
                     "value",
-                    ValueId::Nil.code() as u32,
+                    u32::from(ValueId::Nil.code()),
                     ValueId::Nil.as_str(),
                 ),
                 Self::Str(s) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "value",
-                        ValueId::Str.code() as u32,
+                        u32::from(ValueId::Str.code()),
                         ValueId::Str.as_str(),
                         1,
                     )?;
@@ -43,7 +44,7 @@ impl ser::Serialize for Value {
                 Self::Data(b) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "value",
-                        ValueId::Data.code() as u32,
+                        u32::from(ValueId::Data.code()),
                         ValueId::Data.as_str(),
                         1,
                     )?;
@@ -52,7 +53,8 @@ impl ser::Serialize for Value {
                 }
             }
         } else {
-            let v: Vec<u8> = self.clone().into();
+            let mut v = Vec::new();
+            self.encode_into_buffer(&mut v);
             serializer.serialize_bytes(v.as_slice())
         }
     }

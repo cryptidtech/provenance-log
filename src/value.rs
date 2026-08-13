@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{error::ValueError, Error};
 use core::fmt;
-use multibase::Base;
-use multitrait::{EncodeInto, TryDecodeFrom};
-use multiutil::{EncodingInfo, Varbytes};
+use multi_base::Base;
+use multi_trait::{EncodeInto, EncodeIntoBuffer, TryDecodeFrom};
+use multi_util::{EncodingInfo, Varbytes};
 
 /// the identifiers for the operations performed on the namespace in each entry
 #[repr(u8)]
@@ -107,8 +107,36 @@ impl fmt::Debug for ValueId {
     }
 }
 
-/// A Value is either a printable string or a binary blob. These are the values
-/// stored in the virtual namespace of the log.
+/// Values stored in the virtual namespace
+///
+/// A `Value` represents data stored at a leaf key in the provenance log's virtual key-value store.
+/// Values can be:
+///
+/// - **Nil**: Absence of a value (used for deletion or initialization)
+/// - **Str**: UTF-8 encoded text data
+/// - **Data**: Raw binary data (signatures, hashes, serialized structures, etc.)
+///
+/// # Examples
+///
+/// ```
+/// use provenance_log::Value;
+///
+/// // String value
+/// let text = Value::Str("Hello, world!".into());
+///
+/// // Binary data value
+/// let data = Value::Data(vec![0x01, 0x02, 0x03]);
+///
+/// // Nil value
+/// let nil = Value::Nil;
+///
+/// // Access underlying bytes
+/// let bytes: &[u8] = text.as_ref();
+/// ```
+///
+/// # Thread Safety
+///
+/// `Value` is `Send + Sync` as it contains only `String` and `Vec<u8>`.
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Value {
     /// An empty value
@@ -145,19 +173,26 @@ impl AsRef<[u8]> for Value {
 impl From<Value> for Vec<u8> {
     fn from(val: Value) -> Self {
         let mut v = Vec::default();
+        val.encode_into_buffer(&mut v);
+        v
+    }
+}
+
+impl EncodeIntoBuffer for Value {
+    fn encode_into_buffer(&self, output: &mut Vec<u8>) {
         // add in the operation
-        v.append(&mut ValueId::from(&val).into());
-        match val {
-            Value::Nil => v,
+        u8::from(ValueId::from(self)).encode_into_buffer(output);
+        match self {
+            Value::Nil => {}
             Value::Str(s) => {
                 // add in the string
-                v.append(&mut Varbytes(s.as_bytes().to_vec()).into());
-                v
+                s.len().encode_into_buffer(output);
+                output.extend_from_slice(s.as_bytes());
             }
             Value::Data(b) => {
                 // add in the data
-                v.append(&mut Varbytes(b.clone()).into());
-                v
+                b.len().encode_into_buffer(output);
+                output.extend_from_slice(b);
             }
         }
     }

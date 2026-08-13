@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{Op, OpId};
 use core::fmt;
-use multiutil::Varbytes;
+use multi_util::Varbytes;
 use serde::{
     de::{EnumAccess, Error, SeqAccess, VariantAccess, Visitor},
     Deserialize, Deserializer,

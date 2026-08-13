@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{error::ScriptError, Error, Key};
 use core::fmt;
-use multibase::Base;
-use multicid::Cid;
-use multicodec::Codec;
-use multitrait::{EncodeInto, TryDecodeFrom};
-use multiutil::{BaseEncoded, EncodingInfo, Varbytes};
+use multi_base::Base;
+use multi_cid::Cid;
+use multi_codec::Codec;
+use multi_trait::{EncodeInto, EncodeIntoBuffer, TryDecodeFrom};
+use multi_util::{BaseEncoded, EncodingInfo, Varbytes};
 use std::{cmp::Ordering, path::PathBuf};
 
 /// the multicodec sigil for a provenance entry
@@ -116,8 +116,65 @@ impl fmt::Debug for ScriptId {
     }
 }
 
-/// A Script is either a binary blob, printable code, or a CID reference. These are the values
-/// stored in the virtual namespace of the log.
+/// WebAssembly scripts for programmable authorization
+///
+/// Scripts define the authorization logic for entries. They come in two roles:
+///
+/// - **Lock scripts**: Attached to entries, they authorize future entries
+/// - **Unlock scripts**: Prove authorization by satisfying previous lock scripts
+///
+/// Scripts are WebAssembly modules executed in a sandboxed environment with:
+/// - Memory limits (64 KB)
+/// - Fuel limits (instruction counting)
+/// - Access to entry data via the stack-based API
+///
+/// # Script Types
+///
+/// - **Bin**: Compiled WebAssembly bytecode (starts with `\0asm`)
+/// - **Code**: WebAssembly text format (WAT) or source code
+/// - **Cid**: Content-addressed reference to script data
+///
+/// Each script is associated with a `Key` path that determines which operations it governs.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use provenance_log::{Script, script, Key};
+/// use std::path::PathBuf;
+///
+/// // Load from a WebAssembly text file
+/// let mut path = PathBuf::from("examples/wast/lock.wast");
+/// let lock = script::Builder::from_code_file(&path)
+///     .with_path(&Key::try_from("/").unwrap())
+///     .try_build()
+///     .unwrap();
+///
+/// // Create from a CID reference
+/// # use multi_cid::Cid;
+/// let cid = Cid::default();
+/// let script = Script::Cid(Key::default(), cid);
+///
+/// // Get the path a script governs
+/// assert_eq!(lock.path().to_string(), "/");
+/// ```
+///
+/// # Builder Pattern
+///
+/// Use [`Builder`] to load scripts from files:
+///
+/// ```rust,no_run
+/// # use provenance_log::{script, Key};
+/// # use std::path::PathBuf;
+/// let path = PathBuf::from("script.wasm");
+/// let script = script::Builder::from_bin_file(&path)
+///     .with_path(&Key::try_from("/admin/").unwrap())
+///     .try_build()
+///     .unwrap();
+/// ```
+///
+/// # Thread Safety
+///
+/// `Script` is `Send + Sync` as it contains only `Key`, `Vec<u8>`, `String`, and `Cid`.
 #[derive(Clone, Eq, PartialEq)]
 pub enum Script {
     /// A binary code value
@@ -126,6 +183,30 @@ pub enum Script {
     Code(Key, String),
     /// A CID reference to the script
     Cid(Key, Cid),
+}
+
+impl std::hash::Hash for Script {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Bin(k, b) => {
+                0u8.hash(state);
+                k.hash(state);
+                b.hash(state);
+            }
+            Self::Code(k, s) => {
+                1u8.hash(state);
+                k.hash(state);
+                s.hash(state);
+            }
+            Self::Cid(k, c) => {
+                2u8.hash(state);
+                k.hash(state);
+                // Hash the byte representation of the CID
+                let v: Vec<u8> = c.clone().into();
+                v.hash(state);
+            }
+        }
+    }
 }
 
 impl Script {
@@ -147,9 +228,9 @@ impl Ord for Script {
 }
 
 impl PartialOrd for Script {
-    /// partial ord for script 
+    /// partial ord for script
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.path().cmp(&other.path()))
+        Some(self.cmp(other))
     }
 }
 
@@ -184,31 +265,37 @@ impl AsRef<[u8]> for Script {
 impl From<Script> for Vec<u8> {
     fn from(val: Script) -> Self {
         let mut v = Vec::default();
+        val.encode_into_buffer(&mut v);
+        v
+    }
+}
+
+impl EncodeIntoBuffer for Script {
+    fn encode_into_buffer(&self, output: &mut Vec<u8>) {
         // add in the entry sigil
-        v.append(&mut SIGIL.into());
+        SIGIL.encode_into_buffer(output);
         // add in the operation
-        v.append(&mut ScriptId::from(&val).into());
-        match val {
+        u8::from(ScriptId::from(self)).encode_into_buffer(output);
+        match self {
             Script::Bin(p, b) => {
                 // add in the path
-                v.append(&mut p.into());
+                p.encode_into_buffer(output);
                 // add in the compiled binary script
-                v.append(&mut Varbytes(b.clone()).into());
-                v
+                b.len().encode_into_buffer(output);
+                output.extend_from_slice(b);
             }
             Script::Code(p, s) => {
                 // add in the path
-                v.append(&mut p.into());
+                p.encode_into_buffer(output);
                 // add in the uncompiled script
-                v.append(&mut Varbytes(s.as_bytes().to_vec()).into());
-                v
+                s.len().encode_into_buffer(output);
+                output.extend_from_slice(s.as_bytes());
             }
             Script::Cid(p, c) => {
                 // add in the path
-                v.append(&mut p.into());
+                p.encode_into_buffer(output);
                 // add in the cid
-                v.append(&mut c.clone().into());
-                v
+                c.encode_into_buffer(output);
             }
         }
     }
@@ -260,7 +347,7 @@ impl fmt::Debug for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let id = ScriptId::from(self);
         match self {
-            Self::Bin(k, b) => write!(f, "{:?} - {:?} - {:?}", id, k, Varbytes(b.clone())),
+            Self::Bin(k, b) => write!(f, "{:?} - {:?} - {:?}", id, k, Varbytes::new(b.clone())),
             Self::Code(k, s) => write!(f, "{:?} - {:?} -\n{}", id, k, s),
             Self::Cid(k, c) => write!(f, "{:?} - {:?} - {:?}", id, k, c),
         }
@@ -311,7 +398,24 @@ impl Builder {
     pub fn try_build(&self) -> Result<Script, Error> {
         let path = self.path.clone().unwrap_or_default();
         if let Some(b) = &self.bin {
-            let b = std::fs::read(b).map_err(|e| ScriptError::LoadingFailed(e.to_string()))?;
+            // Check file size before loading
+            let metadata = std::fs::metadata(b).map_err(|e| ScriptError::LoadingFailed {
+                msg: e.to_string(),
+                path: b.to_str().map(ToString::to_string),
+            })?;
+
+            if metadata.len() > crate::limits::MAX_SCRIPT_FILE_SIZE as u64 {
+                return Err(ScriptError::ScriptFileTooLarge(
+                    metadata.len() as usize,
+                    crate::limits::MAX_SCRIPT_FILE_SIZE,
+                )
+                .into());
+            }
+
+            let b = std::fs::read(b).map_err(|e| ScriptError::LoadingFailed {
+                msg: e.to_string(),
+                path: b.to_str().map(ToString::to_string),
+            })?;
             if b.len() < 4 {
                 Err(ScriptError::MissingCode.into())
             } else if b[0] == 0x00 && b[1] == 0x61 && b[2] == 0x73 && b[3] == 0x6d {
@@ -320,10 +424,27 @@ impl Builder {
                 Err(ScriptError::InvalidScriptMagic.into())
             }
         } else if let Some(c) = &self.code {
-            let c = std::fs::read(c).map_err(|e| ScriptError::LoadingFailed(e.to_string()))?;
+            // Check file size before loading
+            let metadata = std::fs::metadata(c).map_err(|e| ScriptError::LoadingFailed {
+                msg: e.to_string(),
+                path: c.to_str().map(ToString::to_string),
+            })?;
+
+            if metadata.len() > crate::limits::MAX_SCRIPT_FILE_SIZE as u64 {
+                return Err(ScriptError::ScriptFileTooLarge(
+                    metadata.len() as usize,
+                    crate::limits::MAX_SCRIPT_FILE_SIZE,
+                )
+                .into());
+            }
+
+            let c = std::fs::read(c).map_err(|e| ScriptError::LoadingFailed {
+                msg: e.to_string(),
+                path: c.to_str().map(ToString::to_string),
+            })?;
             Ok(Script::Code(path, String::from_utf8(c)?))
         } else if let Some(cid) = &self.cid {
-            // TODO: this is where we could handle resolving the Cid into either code or binary
+            // Deferred: this is where we could handle resolving the Cid into either code or binary
             // script data. for now we're just going to pass it along for later processing
             Ok(Script::Cid(path, cid.clone()))
         } else {
@@ -340,10 +461,22 @@ mod tests {
     fn sort_scripts() {
         let cid = Cid::default();
         let mut v: Vec<Script> = vec![
-            Builder::from_code_cid(&cid).with_path(&Key::try_from("/bar/").unwrap()).try_build().unwrap(),
-            Builder::from_code_cid(&cid).with_path(&Key::default()).try_build().unwrap(),
-            Builder::from_code_cid(&cid).with_path(&Key::try_from("/bar/").unwrap()).try_build().unwrap(),
-            Builder::from_code_cid(&cid).with_path(&Key::try_from("/foo").unwrap()).try_build().unwrap(),
+            Builder::from_code_cid(&cid)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build()
+                .unwrap(),
+            Builder::from_code_cid(&cid)
+                .with_path(&Key::default())
+                .try_build()
+                .unwrap(),
+            Builder::from_code_cid(&cid)
+                .with_path(&Key::try_from("/bar/").unwrap())
+                .try_build()
+                .unwrap(),
+            Builder::from_code_cid(&cid)
+                .with_path(&Key::try_from("/foo").unwrap())
+                .try_build()
+                .unwrap(),
         ];
         v.sort();
         for s in v {

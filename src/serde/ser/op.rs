@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{Op, OpId};
-use multiutil::Varbytes;
+use multi_trait::EncodeIntoBuffer;
+use multi_util::Varbytes;
 use serde::ser::{self, SerializeTupleVariant};
 
 /// Serialize instance of [`crate::OpId`]
@@ -12,7 +13,7 @@ impl ser::Serialize for OpId {
         if serializer.is_human_readable() {
             serializer.serialize_str(self.as_str())
         } else {
-            Varbytes(self.clone().into()).serialize(serializer)
+            Varbytes::new(self.clone().into()).serialize(serializer)
         }
     }
 }
@@ -28,7 +29,7 @@ impl ser::Serialize for Op {
                 Self::Noop(key) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "op",
-                        OpId::Noop.code() as u32,
+                        u32::from(OpId::Noop.code()),
                         OpId::Noop.as_str(),
                         1,
                     )?;
@@ -38,7 +39,7 @@ impl ser::Serialize for Op {
                 Self::Delete(key) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "op",
-                        OpId::Delete.code() as u32,
+                        u32::from(OpId::Delete.code()),
                         OpId::Delete.as_str(),
                         1,
                     )?;
@@ -48,7 +49,7 @@ impl ser::Serialize for Op {
                 Self::Update(key, value) => {
                     let mut ss = serializer.serialize_tuple_variant(
                         "op",
-                        OpId::Update.code() as u32,
+                        u32::from(OpId::Update.code()),
                         OpId::Update.as_str(),
                         2,
                     )?;
@@ -58,7 +59,8 @@ impl ser::Serialize for Op {
                 }
             }
         } else {
-            let v: Vec<u8> = self.clone().into();
+            let mut v = Vec::new();
+            self.encode_into_buffer(&mut v);
             serializer.serialize_bytes(v.as_slice())
         }
     }

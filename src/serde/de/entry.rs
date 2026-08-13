@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: FSL-1.1
-use crate::{entry::SIGIL, Entry, Op, Script};
+use crate::{entry::SIGIL, Entry, Op, Script, SeqNo, Version};
 use core::fmt;
-use multicid::{Cid, Vlad};
-use multiutil::Varbytes;
+use multi_cid::Cid;
+use multi_util::Varbytes;
+use multi_vlad::Vlad;
+use once_cell::sync::OnceCell;
 use serde::{
     de::{Error, MapAccess, Visitor},
     Deserialize, Deserializer,
 };
+use std::collections::BTreeMap;
 
 /// Deserialize instance of [`crate::Entry`]
 impl<'de> Deserialize<'de> for Entry {
@@ -15,7 +18,7 @@ impl<'de> Deserialize<'de> for Entry {
         D: Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "version", "vlad", "prev", "lipmaa", "seqno", "ops", "locks", "unlock", "proof",
+            "version", "vlad", "prev", "lipmaa", "seqno", "ops", "locks", "unlock", "proofs",
         ];
 
         #[derive(Deserialize)]
@@ -29,7 +32,7 @@ impl<'de> Deserialize<'de> for Entry {
             Ops,
             Locks,
             Unlock,
-            Proof,
+            Proofs,
         }
 
         struct EntryVisitor;
@@ -53,7 +56,7 @@ impl<'de> Deserialize<'de> for Entry {
                 let mut ops = None;
                 let mut locks = None;
                 let mut unlock = None;
-                let mut proof = None;
+                let mut proofs = None;
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Version => {
@@ -61,7 +64,7 @@ impl<'de> Deserialize<'de> for Entry {
                                 return Err(Error::duplicate_field("version"));
                             }
                             let v: u64 = map.next_value()?;
-                            version = Some(v);
+                            version = Some(Version::new(v));
                         }
                         Field::Vlad => {
                             if vlad.is_some() {
@@ -89,7 +92,7 @@ impl<'de> Deserialize<'de> for Entry {
                                 return Err(Error::duplicate_field("seqno"));
                             }
                             let v: u64 = map.next_value()?;
-                            seqno = Some(v);
+                            seqno = Some(SeqNo::new(v));
                         }
                         Field::Ops => {
                             if ops.is_some() {
@@ -103,7 +106,7 @@ impl<'de> Deserialize<'de> for Entry {
                                 return Err(Error::duplicate_field("locks"));
                             }
                             let l: Vec<Script> = map.next_value()?;
-                            locks = Some(l)
+                            locks = Some(l);
                         }
                         Field::Unlock => {
                             if unlock.is_some() {
@@ -112,12 +115,16 @@ impl<'de> Deserialize<'de> for Entry {
                             let s: Script = map.next_value()?;
                             unlock = Some(s);
                         }
-                        Field::Proof => {
-                            if proof.is_some() {
-                                return Err(Error::duplicate_field("proof"));
+                        Field::Proofs => {
+                            if proofs.is_some() {
+                                return Err(Error::duplicate_field("proofs"));
                             }
-                            let v: Varbytes = map.next_value()?;
-                            proof = Some(v.to_inner());
+                            let p: BTreeMap<String, Varbytes> = map.next_value()?;
+                            proofs = Some(
+                                p.into_iter()
+                                    .map(|(k, v)| (k, v.to_inner()))
+                                    .collect::<BTreeMap<String, Vec<u8>>>(),
+                            );
                         }
                     }
                 }
@@ -129,7 +136,7 @@ impl<'de> Deserialize<'de> for Entry {
                 let ops = ops.ok_or_else(|| Error::missing_field("ops"))?;
                 let locks = locks.ok_or_else(|| Error::missing_field("locks"))?;
                 let unlock = unlock.ok_or_else(|| Error::missing_field("unlock"))?;
-                let proof = proof.ok_or_else(|| Error::missing_field("proof"))?;
+                let proofs = proofs.ok_or_else(|| Error::missing_field("proofs"))?;
                 Ok(Self::Value {
                     version,
                     vlad,
@@ -139,7 +146,8 @@ impl<'de> Deserialize<'de> for Entry {
                     ops,
                     locks,
                     unlock,
-                    proof,
+                    proofs,
+                    cached_cid: OnceCell::new(),
                 })
             }
         }

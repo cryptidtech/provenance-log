@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{log::SIGIL, Log};
+use multi_trait::EncodeIntoBuffer;
 use serde::ser::{self, SerializeStruct};
 
 /// Serialize instance of [`crate::Log`]
@@ -16,7 +17,8 @@ impl ser::Serialize for Log {
             ss.serialize_field("head", &self.head)?;
             ss.end()
         } else {
-            let v: Vec<u8> = self.clone().into();
+            let mut v = Vec::new();
+            self.encode_into_buffer(&mut v);
             serializer.serialize_bytes(v.as_slice())
         }
     }

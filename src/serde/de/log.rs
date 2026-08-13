@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::{
     log::{Entries, SIGIL},
-    Entry, Log, Script,
+    Entry, Log, Script, Version,
 };
 use core::fmt;
-use multicid::{Cid, Vlad};
+use multi_cid::Cid;
+use multi_vlad::Vlad;
 use serde::{
     de::{Error, MapAccess, Visitor},
     Deserialize, Deserializer,
@@ -16,8 +17,7 @@ impl<'de> Deserialize<'de> for Log {
     where
         D: Deserializer<'de>,
     {
-        const FIELDS: &[&str] =
-            &["version", "vlad", "first_lock", "foot", "head", "entries"];
+        const FIELDS: &[&str] = &["version", "vlad", "first_lock", "foot", "head", "entries"];
 
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
@@ -56,7 +56,7 @@ impl<'de> Deserialize<'de> for Log {
                                 return Err(Error::duplicate_field("version"));
                             }
                             let v: u64 = map.next_value()?;
-                            version = Some(v);
+                            version = Some(Version::new(v));
                         }
                         Field::Vlad => {
                             if vlad.is_some() {

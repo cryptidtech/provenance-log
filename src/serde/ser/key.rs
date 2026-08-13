@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1
 use crate::Key;
-use multiutil::Varbytes;
+use multi_util::Varbytes;
 use serde::ser;
 
 /// Serialize instance of [`crate::Key`]
@@ -12,7 +12,7 @@ impl ser::Serialize for Key {
         if serializer.is_human_readable() {
             serializer.serialize_str(self.as_ref())
         } else {
-            Varbytes(self.clone().into()).serialize(serializer)
+            Varbytes::new(self.clone().into()).serialize(serializer)
         }
     }
 }
