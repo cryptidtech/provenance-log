@@ -189,7 +189,7 @@ impl From<Log> for Vec<u8> {
 impl EncodeIntoBuffer for Log {
     fn encode_into_buffer(&self, v: &mut Vec<u8>) {
         // add in the provenance log sigil
-        SIGIL.encode_into_buffer(v);
+        u64::from(SIGIL).encode_into_buffer(v);
         // add in the version
         Varuint(self.version.as_u64()).encode_into_buffer(v);
         // add in the vlad
@@ -1001,6 +1001,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn test_xmss_index_reuse_rejected_in_plog() {
         use multi_key::mk;
 

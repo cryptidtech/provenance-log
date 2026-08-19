@@ -208,7 +208,7 @@ impl From<Entry> for Vec<u8> {
 impl EncodeIntoBuffer for Entry {
     fn encode_into_buffer(&self, v: &mut Vec<u8>) {
         // add in the entry sigil
-        SIGIL.encode_into_buffer(v);
+        u64::from(SIGIL).encode_into_buffer(v);
         // add in the version
         Varuint(self.version.as_u64()).encode_into_buffer(v);
         // add in the vlad
