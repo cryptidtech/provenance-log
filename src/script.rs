@@ -273,7 +273,7 @@ impl From<Script> for Vec<u8> {
 impl EncodeIntoBuffer for Script {
     fn encode_into_buffer(&self, output: &mut Vec<u8>) {
         // add in the entry sigil
-        SIGIL.encode_into_buffer(output);
+        u64::from(SIGIL).encode_into_buffer(output);
         // add in the operation
         u8::from(ScriptId::from(self)).encode_into_buffer(output);
         match self {
