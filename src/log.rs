@@ -1538,20 +1538,14 @@ mod tests {
         let mut rng = rand_010::rng();
         // stateless keys keep the merkle guard out of the picture; the probe
         // targets the prev-link check alone
-        let ephemeral = multi_key::mk::Builder::new_from_random_bytes(
-            Codec::Ed25519Priv,
-            &mut rng,
-        )
-        .unwrap()
-        .try_build()
-        .unwrap();
-        let primary = multi_key::mk::Builder::new_from_random_bytes(
-            Codec::Ed25519Priv,
-            &mut rng,
-        )
-        .unwrap()
-        .try_build()
-        .unwrap();
+        let ephemeral = multi_key::mk::Builder::new_from_random_bytes(Codec::Ed25519Priv, &mut rng)
+            .unwrap()
+            .try_build()
+            .unwrap();
+        let primary = multi_key::mk::Builder::new_from_random_bytes(Codec::Ed25519Priv, &mut rng)
+            .unwrap()
+            .try_build()
+            .unwrap();
 
         let vlad = vlad::Builder::default()
             .with_signing_key(&ephemeral)
@@ -1572,7 +1566,11 @@ mod tests {
             .add_op(&get_key_update_op("/keys/primary", &primary))
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = ephemeral.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                let ms = ephemeral
+                    .sign_view()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
                 Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
             })
             .unwrap();
