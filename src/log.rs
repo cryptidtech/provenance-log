@@ -936,26 +936,39 @@ mod tests {
 
     #[test]
     fn test_builder() {
-        let ephemeral = EncodedMultikey::try_from(
-            "fba2480260874657374206b6579010120cbd87095dc5863fcec46a66a1d4040a73cb329f92615e165096bd50541ee71c0"
+        // the ephemeral key is a merkle-tree Lamport key (the recommended
+        // default) at depth 1: leaf 0 signs the vlad, leaf 1 signs the first
+        // entry, exhausting the tree
+        let ephemeral = multi_key::Builder::new_from_random_bytes_with_depth(
+            Codec::LamportMerkleBlake3256Priv,
+            1,
+            &mut rand_010::rng(),
         )
+        .unwrap()
+        .try_build()
         .unwrap();
         let key = EncodedMultikey::try_from(
             "fba2480260874657374206b6579010120d784f92e18bdba433b8b0f6cbf140bc9629ff607a59997357b40d22c3883a3b8"
         )
         .unwrap();
 
-        // build a vlad
-        let vlad = vlad::Builder::default()
+        // build a vlad with the stateful ephemeral key, capturing the advanced
+        // key state (leaf 0 consumed)
+        let (vlad, advanced) = vlad::Builder::default()
             .with_signing_key(&ephemeral)
             .with_message(&[0x00u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
-            .try_build()
+            .try_build_advance()
             .unwrap();
+
+        // the vlad signature is a merkle-Lamport signature at depth 1
+        assert_eq!(vlad.multisig().depth(), Some(1));
 
         // load the entry scripts
         let lock = load_script(&Key::default(), "lock.wast");
         let unlock = load_script(&Key::default(), "unlock.wast");
-        let vlad_key_op = get_key_update_op("/vlad/key", &ephemeral);
+        // the verifier needs the ephemeral tree-root public key at /vlad/key;
+        // the advanced key has the same public half as the original
+        let vlad_key_op = get_key_update_op("/vlad/key", &advanced);
         let pubkey_op = get_key_update_op("/keys/primary", &key);
 
         let entry = entry::Builder::default()
@@ -967,10 +980,13 @@ mod tests {
             .try_build(|e| {
                 // get the serialized version of the entry (with empty proof)
                 let ev: Vec<u8> = e.clone().into();
-                // get the signing view on the multikey
-                let sv = ephemeral.sign_view().unwrap();
-                // generate the signature over the event
-                let ms = sv.sign(&ev, false, None).unwrap();
+                // sign with the advanced stateful key: leaf 1 is consumed
+                let sv = advanced.sign_view().unwrap();
+                let (ms, advanced2) = sv.sign_advance(&ev, false, None).unwrap();
+                // leaf 1 was the last leaf; the tree is now exhausted
+                let mv = advanced2.merkle_state_view().unwrap();
+                assert_eq!(mv.next_index().unwrap(), 2);
+                assert_eq!(mv.remaining_signatures().unwrap(), 0);
                 // store the signature as proof
                 let sig: Vec<u8> = ms.into();
                 Ok(BTreeMap::from([("primary".to_string(), sig)]))
@@ -995,7 +1011,7 @@ mod tests {
         let verify_iter = log.verify();
         for ret in verify_iter {
             if let Some(e) = ret.err() {
-                println!("verify failed: {e}");
+                panic!("verify failed: {e}");
             }
         }
     }
@@ -1230,6 +1246,143 @@ mod tests {
         assert!(
             err.to_string().contains("reused"),
             "expected a Lamport reuse error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_merkle_leaf_reuse_rejected_in_plog() {
+        use multi_key::mk;
+
+        let mut rng = rand_010::rng();
+        // a stateless ephemeral key signs the vlad and the foot entry
+        let ephemeral = mk::Builder::new_from_random_bytes(Codec::Ed25519Priv, &mut rng)
+            .unwrap()
+            .try_build()
+            .unwrap();
+        // a depth-1 merkle key holds exactly two one-time leaves; the primary
+        // key published at /keys/primary signs entries with it
+        let merkle = mk::Builder::new_from_random_bytes_with_depth(
+            Codec::LamportMerkleBlake3256Priv,
+            1,
+            &mut rng,
+        )
+        .unwrap()
+        .try_build()
+        .unwrap();
+
+        let vlad = vlad::Builder::default()
+            .with_signing_key(&ephemeral)
+            .with_message(&[0x00u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
+            .try_build()
+            .unwrap();
+
+        let lock = load_script(&Key::default(), "lock.wast");
+        let unlock = load_script(&Key::default(), "unlock.wast");
+        let first = load_script(&Key::default(), "first.wast");
+
+        let vlad_key_op = get_key_update_op("/vlad/key", &ephemeral);
+        let merkle_primary_op = get_key_update_op("/keys/primary", &merkle);
+
+        // foot: registers the merkle public key as /keys/primary
+        let e1 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::FIRST)
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .add_op(&vlad_key_op)
+            .add_op(&merkle_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = ephemeral
+                    .sign_view()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        // seqno 1: leaf 0 signs the entry
+        let e2 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::new(1))
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .with_prev(&e1.cid())
+            .add_op(&merkle_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let (ms, advanced) = merkle
+                    .sign_view()
+                    .unwrap()
+                    .sign_advance(&ev, false, None)
+                    .unwrap();
+                // leaf 0 consumed; the advanced state would be persisted here.
+                // A real signer would advance; this test intentionally keeps
+                // using the stale original state below to attempt reuse.
+                let mv = advanced.merkle_state_view().unwrap();
+                assert_eq!(mv.next_index().unwrap(), 1);
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        // foot + one valid merkle entry must verify cleanly
+        let good_log = Builder::new()
+            .with_vlad(&vlad)
+            .with_first_lock(&first)
+            .append_entry(&e1)
+            .append_entry(&e2)
+            .try_build()
+            .unwrap();
+        for ret in good_log.verify() {
+            assert!(
+                ret.is_ok(),
+                "valid merkle log should verify: {:?}",
+                ret.err()
+            );
+        }
+
+        // seqno 2: leaf 0 AGAIN — the tree only holds leaves 0 and 1, and leaf
+        // 0 was already consumed by the previous entry. Signing with stale
+        // state (the original key) produces a leaf-0 signature, which wacc
+        // must reject as reused/rolled back.
+        let e3 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::new(2))
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .with_prev(&e2.cid())
+            .add_op(&merkle_primary_op)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = merkle
+                    .sign_view()
+                    .unwrap()
+                    .sign_advance(&ev, false, None)
+                    .unwrap()
+                    .0;
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        let reuse_log = Builder::new()
+            .with_vlad(&vlad)
+            .with_first_lock(&first)
+            .append_entry(&e1)
+            .append_entry(&e2)
+            .append_entry(&e3)
+            .try_build()
+            .unwrap();
+
+        let results: Vec<_> = reuse_log.verify().collect();
+        let err = results
+            .iter()
+            .find_map(|r| r.as_ref().err())
+            .expect("merkle-Lamport leaf reuse must be rejected by plog verification");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("reused") || msg.contains("rolled back"),
+            "expected a merkle leaf-reuse error, got: {msg}"
         );
     }
 
