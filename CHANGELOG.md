@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-09-01
+
+### Added
+
+- Merkle-tree Lamport `lamport-merkle-blake3-256` at depth 1 is the default ephemeral signing key in the documented first-event flow: leaf 0 signs the vlad and leaf 1 signs the first entry, exactly consuming the two-leaf tree. `test_builder` in `src/log.rs` now demonstrates the full flow — `vlad::Builder::try_build_advance` for the stateful vlad signature, the advanced key's public half published at `/vlad/key`, and `SignView::sign_advance` in the proofs closure with tree-exhaustion assertions.
+- `test_merkle_leaf_reuse_rejected_in_plog`: a depth-1 merkle key signs one entry at leaf 0; a second entry re-signing from stale state at leaf 0 must fail `log.verify()` with a leaf-reuse/rollback error from wacc's merkle enforcement.
+
+### Changed
+
+- Updated dependencies: `multi-codec` 1.2 → 1.3, `multi-key` 1.1 → 1.2, `multi-sig` 1.2 → 1.3, `multi-vlad` 0.1 → 0.2, `wacc` 2.0 → 2.1.
+- Raised `rust-version` from 1.95 to 1.96 (required by `multi-key` 1.2 / `lamport_signature_plus` 0.5.0) and updated the CI MSRV job to 1.96.
+
+### Notes
+
+- Merkle-tree Lamport keys are stateful: each signature consumes a one-time leaf carried inside the signature wire data. Signers must persist the advanced key returned by `SignView::sign_advance` after every signature. Verification-side reuse is enforced by wacc 2.1 (strictly-increasing leaf indices per public key across a verification pass).
+
 ## [2.1.0] - 2026-08-18
 
 ### Summary
@@ -247,6 +263,7 @@ Synced from the BetterSign workspace `bs-provenance-log 0.7.0` crate. This is a 
 
 - First approximation. Initial implementation of programmable cryptographic provenance logs.
 
+[2.2.0]: https://github.com/cryptidtech/provenance-log/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/cryptidtech/provenance-log/releases/tag/v2.1.0
 [2.0.0]: https://github.com/cryptidtech/provenance-log/releases/tag/v2.0.0
 [1.0.23]: https://github.com/cryptidtech/provenance-log/releases/tag/v1.0.23
