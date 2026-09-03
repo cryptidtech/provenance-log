@@ -322,6 +322,10 @@ struct VerifyIter<'a> {
     entries: Vec<&'a Entry>,
     seqno: usize,
     prev_seqno: usize,
+    /// CID of the previously-validated entry (null for the genesis check).
+    /// The current entry's prev link must match this exactly — a null prev
+    /// link mid-chain is a splice and must fail verification.
+    prev_cid: Cid,
     kvp: Kvp<'a>,
     lock_scripts: Vec<Script>,
     error: Option<Error>,
@@ -380,31 +384,27 @@ impl<'a> Iterator for VerifyIter<'a> {
             return None;
         }
 
-        // HIGH-1: Validate prev link points to actual previous entry's CID
-        if self.seqno > 0 {
-            // Get the previous entry from our sorted list
-            if let Some(prev_entry) = self.entries.get(self.seqno - 1) {
-                // Verify that current entry's prev field matches previous entry's CID
-                // Only validate if prev is not null (null prev means first entry)
-                if !entry.prev().is_null() && entry.prev() != prev_entry.cid() {
-                    self.seqno = self.entries.len();
-                    self.error = Some(
-                        LogError::VerifyFailed {
-                            msg: format!(
-                                "Entry prev link does not match previous entry CID (seqno {})",
-                                entry.seqno
-                            ),
-                            seqno: Some(entry.seqno.as_u64()),
-                            entry_cid: Some(entry.cid()),
-                        }
-                        .into(),
-                    );
-                    return Some(Err(self
-                        .error
-                        .take()
-                        .expect("error should be Some as it was just set above")));
+        // HIGH-1: Validate prev link points to actual previous entry's CID.
+        // `prev_cid` is seeded null: at seqno 0 the genesis guard already
+        // required a null prev (matching the seed), and at seqno > 0 a null
+        // prev link mid-chain is a splice that must fail verification.
+        if entry.prev() != self.prev_cid {
+            self.seqno = self.entries.len();
+            self.error = Some(
+                LogError::VerifyFailed {
+                    msg: format!(
+                        "Entry prev link does not match previous entry CID (seqno {})",
+                        entry.seqno
+                    ),
+                    seqno: Some(entry.seqno.as_u64()),
+                    entry_cid: Some(entry.cid()),
                 }
-            }
+                .into(),
+            );
+            return Some(Err(self
+                .error
+                .take()
+                .expect("error should be Some as it was just set above")));
         }
 
         // CRIT-2: Validate Lipmaa link if this entry should have one
@@ -708,8 +708,9 @@ impl<'a> Iterator for VerifyIter<'a> {
             self.xmss_enforcement.commit_entry();
             // update the lock script to validate the next entry
             self.lock_scripts.clone_from(&entry.locks);
-            // update the seqno
+            // update the seqno and the expected prev link for the next entry
             self.prev_seqno = self.seqno;
+            self.prev_cid = entry.cid();
             self.seqno += 1;
         } else {
             // set our index out of range
@@ -757,6 +758,7 @@ impl Log {
             entries,
             seqno: 0,
             prev_seqno: 0,
+            prev_cid: Cid::null(),
             kvp: Kvp::default(),
             lock_scripts: vec![self.first_lock.clone()],
             error: None,
@@ -1527,6 +1529,89 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_mid_log_null_prev_link_rejected() {
+        use multi_key::Views as _;
+
+        let mut rng = rand_010::rng();
+        // stateless keys keep the merkle guard out of the picture; the probe
+        // targets the prev-link check alone
+        let ephemeral = multi_key::mk::Builder::new_from_random_bytes(
+            Codec::Ed25519Priv,
+            &mut rng,
+        )
+        .unwrap()
+        .try_build()
+        .unwrap();
+        let primary = multi_key::mk::Builder::new_from_random_bytes(
+            Codec::Ed25519Priv,
+            &mut rng,
+        )
+        .unwrap()
+        .try_build()
+        .unwrap();
+
+        let vlad = vlad::Builder::default()
+            .with_signing_key(&ephemeral)
+            .with_message(&[0x00u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
+            .try_build()
+            .unwrap();
+
+        let lock = load_script(&Key::default(), "lock.wast");
+        let unlock = load_script(&Key::default(), "unlock.wast");
+        let first = load_script(&Key::default(), "first.wast");
+
+        let e1 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::FIRST)
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .add_op(&get_key_update_op("/vlad/key", &ephemeral))
+            .add_op(&get_key_update_op("/keys/primary", &primary))
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = ephemeral.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        // e2 omits with_prev(): its prev link stays null while seqno is 1 —
+        // a spliced chain that VerifyIter must reject
+        let e2 = entry::Builder::default()
+            .with_vlad(&vlad)
+            .with_seqno(SeqNo::new(1))
+            .add_lock(&lock)
+            .with_unlock(&unlock)
+            .try_build(|e| {
+                let ev: Vec<u8> = e.clone().into();
+                let ms = primary.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
+            })
+            .unwrap();
+
+        // build the Log directly (fields are public) so Log::try_build's
+        // prev-chain walk does not reject it first; this models an
+        // attacker-supplied serialized log
+        let log = Log {
+            version: Version::CURRENT,
+            vlad: vlad.clone(),
+            first_lock: first,
+            foot: e1.cid(),
+            head: e2.cid(),
+            entries: BTreeMap::from([(e1.cid(), e1.clone()), (e2.cid(), e2.clone())]),
+        };
+
+        let results: Vec<_> = log.verify().collect();
+        let err = results
+            .iter()
+            .find_map(|r| r.as_ref().err())
+            .expect("a mid-log entry with a null prev link must fail verification");
+        assert!(
+            err.to_string().contains("prev link does not match"),
+            "expected a prev-link error, got: {err}"
+        );
     }
 }
 
