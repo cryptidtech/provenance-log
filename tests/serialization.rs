@@ -96,7 +96,7 @@ fn test_entry_serialization_roundtrip() {
 
     // Serialize
     let serialized: Vec<u8> = original.clone().into();
-    assert!(!serialized.is_empty());
+    assert_ne!(serialized, Vec::<u8>::new());
 
     // Deserialize
     let (deserialized, remaining) = Entry::try_decode_from(&serialized).unwrap();
@@ -189,7 +189,7 @@ fn test_log_serialization_roundtrip() {
 
     // Serialize
     let serialized: Vec<u8> = original.clone().into();
-    assert!(!serialized.is_empty());
+    assert_ne!(serialized, Vec::<u8>::new());
 
     // Deserialize
     let (deserialized, remaining) = Log::try_decode_from(&serialized).unwrap();

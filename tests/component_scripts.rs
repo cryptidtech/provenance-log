@@ -334,6 +334,6 @@ fn test_vlad_accepts_component_first_lock_bytes() {
     let mut encoded = Vec::default();
     vlad.encode_into_buffer(&mut encoded);
     let (decoded, rest) = Vlad::try_decode_from(encoded.as_slice()).unwrap();
-    assert!(rest.is_empty());
+    assert_eq!(rest, []);
     assert_eq!(decoded, vlad);
 }
