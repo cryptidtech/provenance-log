@@ -91,7 +91,9 @@ impl fmt::Display for SeqNo {
 /// Entry/Log version newtype for type safety
 ///
 /// A `Version` tracks the format version of entries and logs to enable future upgrades
-/// and backward compatibility checks. The current version is 1.
+/// and backward compatibility checks. The current version is 2; version 2 entries
+/// carry WASM component scripts while the legacy version 1 carries core-module
+/// scripts.
 ///
 /// # Thread Safety
 ///
@@ -103,8 +105,12 @@ impl fmt::Display for SeqNo {
 /// use provenance_log::Version;
 ///
 /// let current = Version::CURRENT;
-/// assert_eq!(current.as_u64(), 1);
+/// assert_eq!(current.as_u64(), 2);
 /// assert!(current.is_supported());
+///
+/// // the legacy version pins the core-module script format
+/// assert_eq!(Version::LEGACY.as_u64(), 1);
+/// assert!(Version::LEGACY.is_supported());
 ///
 /// // Check if a version is supported
 /// let future_version = Version::new(99);
@@ -115,7 +121,12 @@ pub struct Version(u64);
 
 impl Version {
     /// The current supported version
-    pub const CURRENT: Self = Self(1);
+    pub const CURRENT: Self = Self(2);
+
+    /// The legacy version, which carries core-module (non-component) scripts
+    ///
+    /// Builders of pre-component entries pin their version with this constant.
+    pub const LEGACY: Self = Self(1);
 
     /// Create a new version
     pub const fn new(value: u64) -> Self {

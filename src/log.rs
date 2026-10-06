@@ -35,7 +35,11 @@
 //!   by fuel consumption)
 //! - For more details on security configuration, see `wacc::SecurityLimits`
 //!
-use crate::{entry, error::LogError, Entry, Error, Kvp, Script, Stk, Version};
+use crate::{
+    entry::{self, carried_script_violation, required_script_kind},
+    error::LogError,
+    Entry, Error, Kvp, Script, Stk, Version,
+};
 use core::fmt;
 use multi_base::Base;
 use multi_cid::Cid;
@@ -44,6 +48,7 @@ use multi_trait::{EncodeInto, EncodeIntoBuffer, Null, TryDecodeFrom};
 use multi_util::{BaseEncoded, CodecInfo, EncodingInfo, Varuint};
 use multi_vlad::Vlad;
 use std::collections::BTreeMap;
+use wacc::ScriptKind;
 use wacc::{prelude::StoreLimitsBuilder, types::ContextPath, vm};
 use wasmtime::AsContextMut;
 
@@ -51,7 +56,7 @@ use wasmtime::AsContextMut;
 pub const SIGIL: Codec = Codec::ProvenanceLog;
 
 /// the current version of provenance entries this supports
-pub const LOG_VERSION: u64 = 1;
+pub const LOG_VERSION: u64 = 2;
 
 /// a base encoded provenance log
 pub type EncodedLog = BaseEncoded<Log>;
@@ -304,6 +309,60 @@ struct EntryIter<'a> {
     current: usize,
 }
 
+/// A built script ready to execute, on either execution model.
+///
+/// Verification dispatches on the script kind detected in the payload bytes:
+/// a core module runs through [`vm::Instance`] and a WASM component through
+/// [`vm::ComponentInstance`]. Both hold the same [`vm::Context`] store, so
+/// stack reads work identically through [`Self::store`].
+enum ScriptVm {
+    Module(vm::Instance),
+    Component(vm::ComponentInstance),
+}
+
+impl ScriptVm {
+    /// Builds the script payload on the execution model that its detected
+    /// kind demands. Undetectable payloads (empty payloads, `Script::Cid`
+    /// references) fall back to the kind the owning entry's version demands,
+    /// which preserves their compile-time failure behavior.
+    fn build(
+        bytes: &[u8],
+        entry_version: Version,
+        context: vm::Context,
+    ) -> Result<Self, wacc::Error> {
+        let component_path = match ScriptKind::detect(bytes) {
+            Some(ScriptKind::Component) => true,
+            Some(ScriptKind::Module) => false,
+            None => required_script_kind(entry_version) == ScriptKind::Component,
+        };
+        let builder = vm::Builder::new().with_context(context);
+        if component_path {
+            Ok(Self::Component(
+                builder.with_component_bytes(bytes).try_build_component()?,
+            ))
+        } else {
+            Ok(Self::Module(builder.with_bytes(bytes).try_build()?))
+        }
+    }
+
+    /// Runs the script's export entry point; non-zero results mean success.
+    fn run(&mut self, fname: &str) -> Result<bool, wacc::Error> {
+        match self {
+            Self::Module(instance) => instance.run(fname),
+            Self::Component(component) => component.run(fname),
+        }
+    }
+
+    /// Mutable context over the script's virtual machine store, the same
+    /// borrow the module path takes to read the stacks
+    fn store_context_mut(&mut self) -> wasmtime::StoreContextMut<'_, vm::Context> {
+        match self {
+            Self::Module(instance) => instance.store.as_context_mut(),
+            Self::Component(component) => component.store.as_context_mut(),
+        }
+    }
+}
+
 impl<'a> Iterator for EntryIter<'a> {
     type Item = &'a Entry;
 
@@ -455,6 +514,33 @@ impl<'a> Iterator for VerifyIter<'a> {
             }
         }
 
+        // an entry, the log's first lock at seqno 0, and the entry's own
+        // version must agree on the script kind: version 2 entries carry
+        // WASM components and version 1 entries carry core modules.
+        // Mismatches reject loudly; undetectable payloads pass and fail
+        // later at compile time.
+        let incoming = self.lock_scripts.iter().filter(|_| self.seqno == 0);
+        let mut scripts = std::iter::once(&entry.unlock)
+            .chain(entry.locks.iter())
+            .chain(incoming);
+        if let Some((expected, found)) =
+            scripts.find_map(|script| carried_script_violation(entry.version, script))
+        {
+            self.seqno = self.entries.len();
+            self.error = Some(
+                LogError::ScriptKindMismatch {
+                    seqno: entry.seqno.as_u64(),
+                    expected,
+                    found,
+                }
+                .into(),
+            );
+            return Some(Err(self
+                .error
+                .take()
+                .expect("error should be Some as it was just set above")));
+        }
+
         // 'unlock:
         // Extract pstack values after unlock to use in lock scripts
         log::warn!(
@@ -482,22 +568,19 @@ impl<'a> Iterator for VerifyIter<'a> {
                     .build(),
             };
 
-            let mut instance = match vm::Builder::new()
-                .with_context(unlock_ctx)
-                .with_bytes(entry.unlock.clone())
-                .try_build()
-            {
-                Ok(i) => i,
-                Err(e) => {
-                    // set our index out of range
-                    self.seqno = self.entries.len();
-                    self.error = Some(LogError::Wacc(e).into());
-                    return Some(Err(self
-                        .error
-                        .take()
-                        .expect("error should be Some as it was just set above")));
-                }
-            };
+            let mut instance =
+                match ScriptVm::build(entry.unlock.as_ref(), entry.version, unlock_ctx) {
+                    Ok(instance) => instance,
+                    Err(e) => {
+                        // set our index out of range
+                        self.seqno = self.entries.len();
+                        self.error = Some(LogError::Wacc(e).into());
+                        return Some(Err(self
+                            .error
+                            .take()
+                            .expect("error should be Some as it was just set above")));
+                    }
+                };
             //print!("running unlock script from seqno: {}...", self.seqno);
 
             // run the unlock script — check both the return value and any runtime error
@@ -516,7 +599,7 @@ impl<'a> Iterator for VerifyIter<'a> {
 
             // Extract pstack values from the store after unlock script runs
             let values = {
-                let mut ctx = instance.store.as_context_mut();
+                let mut ctx = instance.store_context_mut();
                 let context = ctx.data_mut();
                 let mut values = Vec::new();
                 for i in 0..context.pstack.len() {
@@ -627,12 +710,8 @@ impl<'a> Iterator for VerifyIter<'a> {
                         .build(),
                 };
 
-                let mut instance = match vm::Builder::new()
-                    .with_context(lock_ctx)
-                    .with_bytes(lock.clone())
-                    .try_build()
-                {
-                    Ok(i) => i,
+                let mut instance = match ScriptVm::build(lock.as_ref(), entry.version, lock_ctx) {
+                    Ok(instance) => instance,
                     Err(e) => {
                         // set our index out of range
                         self.seqno = self.entries.len();
@@ -659,7 +738,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                 //println!("SUCCEEDED!");
 
                 // Extract the result from the instance's store
-                let mut ctx = instance.store.as_context_mut();
+                let mut ctx = instance.store_context_mut();
                 let context = ctx.data_mut();
                 context.rstack.top()
             };
@@ -784,6 +863,14 @@ impl Log {
         }
         self.entries.insert(cid.clone(), entry.clone());
         self.head = cid;
+        // the log version derives from the entry versions: the maximum of the
+        // carried entries; appending never lowers the version
+        self.version = self
+            .entries
+            .values()
+            .map(|entry| entry.version.as_u64())
+            .max()
+            .map_or(self.version, Version::new);
         Ok(())
     }
 }
@@ -853,7 +940,6 @@ impl Builder {
 
     /// Try to build the Log
     pub fn try_build(&self) -> Result<Log, Error> {
-        let version = self.version;
         let vlad = self.vlad.clone().ok_or(LogError::MissingVlad)?;
         let first_lock = self
             .first_lock
@@ -883,6 +969,14 @@ impl Builder {
                 }
             }
         }
+        // the log version derives from the entry versions: the maximum of the
+        // carried entries, falling back to the builder's version when there
+        // are no entries
+        let version = entries
+            .values()
+            .map(|entry| entry.version.as_u64())
+            .max()
+            .map_or(self.version, Version::new);
         Ok(Log {
             version,
             vlad,
@@ -974,6 +1068,7 @@ mod tests {
         let pubkey_op = get_key_update_op("/keys/primary", &key);
 
         let entry = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .add_lock(&lock)
             .with_unlock(&unlock)
@@ -1053,6 +1148,7 @@ mod tests {
         // foot: registers the XMSS public key as /keys/primary, self-signed by
         // the ephemeral key (validated by first.wast)
         let e1 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::FIRST)
             .add_lock(&lock)
@@ -1073,6 +1169,7 @@ mod tests {
         // seqno 1: signed by the XMSS key at leaf index 0 (valid), keeps
         // /keys/primary = XMSS pub so the same key validates the next entry
         let e2 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(1))
             .add_lock(&lock)
@@ -1102,6 +1199,7 @@ mod tests {
         // seqno 2: signed by the SAME XMSS key, which again consumes leaf index 0
         // — a reuse that simulates restoring the key from an old snapshot
         let e3 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(2))
             .add_lock(&lock)
@@ -1168,6 +1266,7 @@ mod tests {
 
         // foot: registers the Lamport public key as /keys/primary
         let e1 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::FIRST)
             .add_lock(&lock)
@@ -1187,6 +1286,7 @@ mod tests {
 
         // seqno 1: first (valid) use of the Lamport key, keeps /keys/primary
         let e2 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(1))
             .add_lock(&lock)
@@ -1218,6 +1318,7 @@ mod tests {
 
         // seqno 2: SECOND use of the same Lamport key — a one-time-key reuse
         let e3 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(2))
             .add_lock(&lock)
@@ -1287,6 +1388,7 @@ mod tests {
 
         // foot: registers the merkle public key as /keys/primary
         let e1 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::FIRST)
             .add_lock(&lock)
@@ -1306,6 +1408,7 @@ mod tests {
 
         // seqno 1: leaf 0 signs the entry
         let e2 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(1))
             .add_lock(&lock)
@@ -1349,6 +1452,7 @@ mod tests {
         // state (the original key) produces a leaf-0 signature, which wacc
         // must reject as reused/rolled back.
         let e3 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(2))
             .add_lock(&lock)
@@ -1427,6 +1531,7 @@ mod tests {
 
         // create the first, self-signed Entry object
         let e1 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::FIRST)
             .add_lock(&lock) // "/" -> lock.wast
@@ -1445,6 +1550,7 @@ mod tests {
 
         //println!("{:?}", e1);
         let e2 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(1))
             .add_lock(&lock) // "/" -> lock.wast
@@ -1463,6 +1569,7 @@ mod tests {
 
         //println!("{:?}", e2);
         let e3 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(2))
             .add_lock(&lock) // "/" -> lock.wast
@@ -1479,6 +1586,7 @@ mod tests {
 
         //println!("{:?}", e3);
         let e4 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(3))
             .add_lock(&lock) // "/" -> lock.wast
@@ -1558,6 +1666,7 @@ mod tests {
         let first = load_script(&Key::default(), "first.wast");
 
         let e1 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::FIRST)
             .add_lock(&lock)
@@ -1578,6 +1687,7 @@ mod tests {
         // e2 omits with_prev(): its prev link stays null while seqno is 1 —
         // a spliced chain that VerifyIter must reject
         let e2 = entry::Builder::default()
+            .with_version(Version::LEGACY)
             .with_vlad(&vlad)
             .with_seqno(SeqNo::new(1))
             .add_lock(&lock)

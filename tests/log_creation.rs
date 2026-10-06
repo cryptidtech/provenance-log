@@ -15,7 +15,7 @@
 
 use multi_key::{EncodedMultikey, Multikey, Views};
 use multi_vlad::{vlad, Vlad};
-use provenance_log::{entry, log, Entry, Key, Op, Script, SeqNo, Value};
+use provenance_log::{entry, log, Entry, Key, Op, Script, SeqNo, Value, Version};
 use std::path::PathBuf;
 
 /// Helper function to load a WAST script from the examples directory
@@ -91,6 +91,7 @@ fn test_create_log_with_single_entry() {
     let pubkey_op = get_key_update_op("/keys/primary", &ephemeral);
 
     let entry = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .add_lock(&lock)
         .with_unlock(&unlock)
@@ -139,6 +140,7 @@ fn test_create_log_with_multiple_entries() {
 
     // Create first entry
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -161,6 +163,7 @@ fn test_create_log_with_multiple_entries() {
 
     // Create second entry
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&Op::Delete("/vlad/key".try_into().unwrap()))
@@ -181,6 +184,7 @@ fn test_create_log_with_multiple_entries() {
 
     // Create third entry
     let e3 = entry::Builder::from(&e2)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&get_key_update_op("/keys/primary", &key3))
@@ -238,6 +242,7 @@ fn test_log_append_entry() {
 
     // Create first entry
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -271,6 +276,7 @@ fn test_log_append_entry() {
 
     // Create and append second entry
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&get_key_update_op("/keys/primary", &key2))
@@ -312,6 +318,7 @@ fn test_forking_logs() {
 
     // Create parent log with one entry
     let parent_entry = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&parent_vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -344,6 +351,7 @@ fn test_forking_logs() {
 
     // Create child log with reference to parent
     let child_entry = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&child_vlad)
         .with_seqno(SeqNo::FIRST)
         .with_prev(&parent_entry.cid()) // Link to parent

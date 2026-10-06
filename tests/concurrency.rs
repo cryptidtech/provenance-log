@@ -15,7 +15,7 @@
 use multi_key::{EncodedMultikey, Multikey, Views};
 use multi_trait::Null;
 use multi_vlad::{vlad, Vlad};
-use provenance_log::{entry, log, Entry, Key, Log, Op, Script, SeqNo, Value};
+use provenance_log::{entry, log, Entry, Key, Log, Op, Script, SeqNo, Value, Version};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
@@ -97,6 +97,7 @@ fn test_concurrent_log_reads() {
 
     // Create a log with multiple entries
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -118,6 +119,7 @@ fn test_concurrent_log_reads() {
         .unwrap();
 
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&Op::Update(
@@ -228,6 +230,7 @@ fn test_concurrent_log_iteration() {
     let unlock = load_script(&Key::default(), "unlock.wast");
 
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)

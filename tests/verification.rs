@@ -19,7 +19,7 @@ use multi_codec::Codec;
 use multi_hash::mh;
 use multi_key::{EncodedMultikey, Multikey, Views};
 use multi_vlad::{vlad, Vlad};
-use provenance_log::{entry, log, Key, Op, Script, SeqNo, Value};
+use provenance_log::{entry, log, Key, Op, Script, SeqNo, Value, Version};
 use std::path::PathBuf;
 
 /// Helper function to load a WAST script from the examples directory
@@ -81,6 +81,7 @@ fn test_valid_signature_verification() {
 
     // Create entry with valid signature
     let entry = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -138,6 +139,7 @@ fn test_invalid_signature_rejection() {
 
     // Create entry with INVALID signature (signed with wrong key)
     let entry = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -359,6 +361,7 @@ fn test_lock_script_precedence() {
 
     // Create entry with multiple lock scripts
     let entry = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock) // Use working lock for actual verification
@@ -405,6 +408,7 @@ fn test_multi_entry_verification_chain() {
 
     // Create first entry
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -427,6 +431,7 @@ fn test_multi_entry_verification_chain() {
 
     // Create second entry
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&Op::Delete("/vlad/key".try_into().unwrap()))
@@ -447,6 +452,7 @@ fn test_multi_entry_verification_chain() {
 
     // Create third entry
     let e3 = entry::Builder::from(&e2)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&get_key_update_op("/keys/primary", &key3))
@@ -499,6 +505,7 @@ fn test_verification_fails_on_broken_chain() {
 
     // Create first entry with seqno 0
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -521,6 +528,7 @@ fn test_verification_fails_on_broken_chain() {
 
     // Create second entry with proper seqno 1
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&get_key_update_op("/keys/primary", &key2))
@@ -540,6 +548,7 @@ fn test_verification_fails_on_broken_chain() {
 
     // Create third entry with seqno that skips (seqno 3 instead of 2)
     let e3 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::new(3)) // Wrong! Should be 2
         .with_prev(&e2.cid())
@@ -596,6 +605,7 @@ fn test_check_counter_mechanism() {
 
     // Create entry
     let entry = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
