@@ -52,10 +52,6 @@ serde_json = "1.0"
 serde_test = "1.0"
 test-log = { version = "0.2", features = ["trace", "color"] }
 
-# Local wacc 2.2.0 until it is published (remove once wacc 2.2.0 publishes; see the release changelog).
-[patch.crates-io]
-wacc = { path = "../wacc" }
-
 [[bench]]
 name = "provenance-log_bench"
 harness = false
