@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-10-06
+
+### Added
+
+- Entry version 2 with component lock and unlock scripts. `Version::CURRENT` is now 2, the legacy core-module version stays available as `Version::LEGACY` (1), and `Entry::Builder::with_version` pins an entry's version with `is_supported()` validation (`EntryError::InvalidVersion` otherwise). Version-2 entries run their scripts as WASM components on wacc 2.2's component path; version-1 entries keep core-module execution.
+- Entry-carried script-kind gates: a version-2 entry's unlock and lock scripts must be WASM components and a version-1 entry's must be core modules. The builder rejects violations with `EntryError::WrongScriptKind { expected, actual }`; log verification rejects them per entry with `LogError::ScriptKindMismatch { seqno, expected, found }`, including the seqno-0 first-lock check. Undetectable payloads (empty scripts, `Script::Cid`) pass the gates and fail at compile time, as before.
+- Component example scripts under `examples/provenance-log/scripts/`: three wit-bindgen `no_std` guest crates (`unlock`, `lock`, `first`) with a workspace `Cargo.toml`, vendored WIT copies pinned to the wacc 2.2.0 interface, and a Makefile fixture pipeline; the legacy `.wast` examples stay for the core-module path. `tests/component_scripts.rs` verifies component and mixed-version logs end to end.
+
+### Changed
+
+- New entries default to version 2, so builders of core-module entries must pin version 1 with `Builder::with_version(Version::LEGACY)`. Migration to version 2 is explicit: an entry chains in its predecessor's lock scripts and must replace inherited module locks through `with_locks` with component scripts. Mixed-version logs verify under the carried-script rule.
+- Requirement `wacc = "2.1"` → `"2.2"`.
+- The script verification limiter allows eight WASM instances per execution store (component guests instantiate three core modules, which the prior cap of two rejected).
+
+### Notes
+
+- A `[patch.crates-io]` block pins `wacc` to the local checkout while wacc 2.2.0 is unpublished; the block goes away once wacc 2.2.0 publishes.
+
 ## [2.2.0] - 2026-09-01
 
 ### Added
@@ -263,6 +281,7 @@ Synced from the BetterSign workspace `bs-provenance-log 0.7.0` crate. This is a 
 
 - First approximation. Initial implementation of programmable cryptographic provenance logs.
 
+[2.3.0]: https://github.com/cryptidtech/provenance-log/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/cryptidtech/provenance-log/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/cryptidtech/provenance-log/releases/tag/v2.1.0
 [2.0.0]: https://github.com/cryptidtech/provenance-log/releases/tag/v2.0.0
