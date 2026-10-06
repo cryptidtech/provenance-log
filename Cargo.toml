@@ -1,6 +1,6 @@
 [package]
 name = "provenance-log"
-version = "2.2.0"
+version = "2.3.0"
 edition = "2021"
 rust-version = "1.96"
 authors = ["Dave Grantham <dwg@linuxprogrammer.org>"]
@@ -23,18 +23,18 @@ log = "0.4"
 multi-base = { version = "1.0", default-features = false }
 multi-cbor = { version = "0.1", optional = true }
 multi-cid = "0.2"
-multi-codec = "1.3"
+multi-codec = "1.5"
 multi-hash = "1.1"
-multi-key = "1.2"
-multi-sig = "1.3"
+multi-key = "2.0"
+multi-sig = "1.4"
 multi-trait = { version = "1.0", default-features = false }
 multi-util = "1.1"
 multi-vlad = "0.2"
-once_cell = "1.19"
+once_cell = "1.21"
 thiserror = "2.0"
 serde = { version = "1.0", default-features = false, features = ["alloc", "derive"], optional = true }
-wacc = "2.1"
-wasmtime = { version = "48.0", default-features = false, features = [
+wacc = "2.2"
+wasmtime = { version = "49.0", default-features = false, features = [
     "cranelift",
     "parallel-compilation",
     "runtime",

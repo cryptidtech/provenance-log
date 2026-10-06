@@ -17,7 +17,7 @@ use multi_codec::Codec;
 use multi_hash::mh;
 use multi_key::{EncodedMultikey, Multikey, Views};
 use multi_vlad::{vlad, Vlad};
-use provenance_log::{entry, log, Key, Op, Script, SeqNo, Value};
+use provenance_log::{entry, log, Key, Op, Script, SeqNo, Value, Version};
 use std::path::PathBuf;
 
 /// Helper function to load a WAST script from the examples directory
@@ -89,6 +89,7 @@ fn test_branch_specific_delegation() {
 
     // Entry 1: Root key sets up delegation
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&root_lock)
@@ -115,6 +116,7 @@ fn test_branch_specific_delegation() {
 
     // Entry 2: Admin key modifies /admin/ branch
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&root_lock)
         .add_lock(&admin_lock)
         .add_lock(&data_lock)
@@ -139,6 +141,7 @@ fn test_branch_specific_delegation() {
 
     // Entry 3: Data key modifies /data/ branch
     let e3 = entry::Builder::from(&e2)
+        .with_version(Version::LEGACY)
         .add_lock(&root_lock)
         .add_lock(&admin_lock)
         .add_lock(&data_lock)
@@ -195,6 +198,7 @@ fn test_delegation_prevents_cross_branch_modification() {
 
     // Entry 1: Setup delegation
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&root_lock)
@@ -219,6 +223,7 @@ fn test_delegation_prevents_cross_branch_modification() {
 
     // Entry 2: Admin key tries to modify root (should fail)
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&root_lock)
         .add_lock(&admin_lock)
         .with_unlock(&unlock)
@@ -303,6 +308,7 @@ fn test_force_recovery_with_precedence() {
 
     // Entry 1: Setup with both locks
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&normal_lock)
@@ -353,6 +359,7 @@ fn test_multiple_delegation_levels() {
 
     // Entry 1: Root sets up multi-level delegation
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&root_lock)
@@ -379,6 +386,7 @@ fn test_multiple_delegation_levels() {
 
     // Entry 2: Level 1 key modifies its branch
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&root_lock)
         .add_lock(&level1_lock)
         .add_lock(&level2_lock)
@@ -403,6 +411,7 @@ fn test_multiple_delegation_levels() {
 
     // Entry 3: Level 2 key modifies its deeper branch
     let e3 = entry::Builder::from(&e2)
+        .with_version(Version::LEGACY)
         .add_lock(&root_lock)
         .add_lock(&level1_lock)
         .add_lock(&level2_lock)
@@ -540,6 +549,7 @@ fn test_delegation_key_rotation() {
 
     // Entry 1: Setup initial delegation
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&root_lock)
@@ -564,6 +574,7 @@ fn test_delegation_key_rotation() {
 
     // Entry 2: Old delegate does some work
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&root_lock)
         .add_lock(&delegate_lock)
         .with_unlock(&unlock)
@@ -587,6 +598,7 @@ fn test_delegation_key_rotation() {
 
     // Entry 3: Root rotates the delegated key
     let e3 = entry::Builder::from(&e2)
+        .with_version(Version::LEGACY)
         .add_lock(&root_lock)
         .add_lock(&delegate_lock)
         .with_unlock(&unlock)
@@ -607,6 +619,7 @@ fn test_delegation_key_rotation() {
 
     // Entry 4: New delegate does work
     let e4 = entry::Builder::from(&e3)
+        .with_version(Version::LEGACY)
         .add_lock(&root_lock)
         .add_lock(&delegate_lock)
         .with_unlock(&unlock)

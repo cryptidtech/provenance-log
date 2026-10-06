@@ -5,7 +5,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use multi_key::EncodedMultikey;
 use multi_trait::EncodeIntoBuffer;
 use multi_vlad::vlad;
-use provenance_log::{entry, log, Entry, Key, Log, Op, Script, SeqNo, Value};
+use provenance_log::{entry, log, Entry, Key, Log, Op, Script, SeqNo, Value, Version};
 use std::hint::black_box;
 use std::path::PathBuf;
 
@@ -42,6 +42,7 @@ fn create_test_entry() -> Entry {
     let unlock = load_script(&Key::default(), "unlock.wast");
 
     entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)

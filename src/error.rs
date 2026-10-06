@@ -5,6 +5,8 @@
 //! Errors are organized by the component that generates them and include contextual
 //! information to aid in debugging and recovery.
 
+use wacc::ScriptKind;
+
 /// Top-level error type for all provenance log operations
 ///
 /// This enum wraps more specific error types and provides transparent error propagation
@@ -134,6 +136,20 @@ pub enum EntryError {
     /// Too many proofs in entry
     #[error("entry has {0} proofs, maximum allowed is {1}")]
     TooManyProofs(usize, usize),
+    /// An entry's carried script kind does not match the kind that its version
+    /// demands: version 1 demands core-module scripts and version 2 demands
+    /// WASM components.
+    ///
+    /// **Recovery**: pin the entry's version with
+    /// [`crate::entry::Builder::with_version`] so the carried scripts match
+    /// their demanded kind, or replace the scripts with the demanded kind.
+    #[error("entry script kind mismatch: expected {expected}, found {actual:?}")]
+    WrongScriptKind {
+        /// The script kind that the entry's version demands
+        expected: ScriptKind,
+        /// The detected kind of the mismatching carried script, when detectable
+        actual: Option<ScriptKind>,
+    },
 }
 
 impl From<std::fmt::Error> for EntryError {
@@ -279,6 +295,17 @@ pub enum LogError {
         /// The actual CID the entry's Lipmaa field points to
         #[source]
         actual_cid: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+    /// A carried script's detected kind does not match the kind that the entry's
+    /// version demands (see [`EntryError::WrongScriptKind`]).
+    #[error("entry {seqno} script kind mismatch: expected {expected}, found {found:?}")]
+    ScriptKindMismatch {
+        /// The sequence number of the entry whose carried script mismatched
+        seqno: u64,
+        /// The script kind that the entry's version demands
+        expected: ScriptKind,
+        /// The detected kind of the mismatching carried script, when detectable
+        found: Option<ScriptKind>,
     },
 }
 

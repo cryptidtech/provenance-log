@@ -21,7 +21,7 @@ use multi_key::{EncodedMultikey, Multikey, Views};
 use multi_trait::Null;
 use multi_trait::TryDecodeFrom;
 use multi_vlad::{vlad, Vlad};
-use provenance_log::{entry, log, Entry, Key, Log, Op, Script, SeqNo, Value};
+use provenance_log::{entry, log, Entry, Key, Log, Op, Script, SeqNo, Value, Version};
 use std::path::PathBuf;
 
 /// Helper function to load a WAST script from the examples directory
@@ -70,6 +70,7 @@ fn test_entry_serialization_roundtrip() {
 
     // Create entry
     let original = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -95,7 +96,7 @@ fn test_entry_serialization_roundtrip() {
 
     // Serialize
     let serialized: Vec<u8> = original.clone().into();
-    assert!(!serialized.is_empty());
+    assert_ne!(serialized, Vec::<u8>::new());
 
     // Deserialize
     let (deserialized, remaining) = Entry::try_decode_from(&serialized).unwrap();
@@ -158,6 +159,7 @@ fn test_log_serialization_roundtrip() {
 
     // Create entry
     let entry = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -187,7 +189,7 @@ fn test_log_serialization_roundtrip() {
 
     // Serialize
     let serialized: Vec<u8> = original.clone().into();
-    assert!(!serialized.is_empty());
+    assert_ne!(serialized, Vec::<u8>::new());
 
     // Deserialize
     let (deserialized, remaining) = Log::try_decode_from(&serialized).unwrap();
@@ -214,6 +216,7 @@ fn test_log_serialization_with_multiple_entries() {
 
     // Create entries
     let e1 = entry::Builder::default()
+        .with_version(Version::LEGACY)
         .with_vlad(&vlad)
         .with_seqno(SeqNo::FIRST)
         .add_lock(&lock)
@@ -235,6 +238,7 @@ fn test_log_serialization_with_multiple_entries() {
         .unwrap();
 
     let e2 = entry::Builder::from(&e1)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&get_key_update_op("/keys/primary", &key2))
@@ -253,6 +257,7 @@ fn test_log_serialization_with_multiple_entries() {
         .unwrap();
 
     let e3 = entry::Builder::from(&e2)
+        .with_version(Version::LEGACY)
         .add_lock(&lock)
         .with_unlock(&unlock)
         .add_op(&Op::Update(

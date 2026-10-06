@@ -14,12 +14,13 @@ use std::{
     collections::{BTreeMap, HashSet},
     convert::From,
 };
+use wacc::ScriptKind;
 
 /// the multicodec sigil for a provenance entry
 pub const SIGIL: Codec = Codec::ProvenanceLogEntry;
 
 /// the current version of provenance entries this supports
-pub const ENTRY_VERSION: u64 = 1;
+pub const ENTRY_VERSION: u64 = 2;
 
 /// the list of keys for the fields in an entry
 ///
@@ -35,6 +36,34 @@ pub const ENTRY_FIELDS: &[&str] = &[
     "/entry/ops",
     "/entry/unlock",
 ];
+
+/// the script kind that an entry version demands for the scripts it carries:
+/// version 1 demands core-module scripts and version 2 demands WASM components
+pub(crate) const fn required_script_kind(version: Version) -> ScriptKind {
+    if version.as_u64() >= 2 {
+        ScriptKind::Component
+    } else {
+        ScriptKind::Module
+    }
+}
+
+/// Returns the `(expected, Some(actual))` kind pair for the first carried
+/// script whose detected kind contradicts the kind the entry's version demands.
+///
+/// An entry's unlock script and its own lock scripts must carry the script
+/// kind that its version demands. Undetectable payloads (empty payloads,
+/// `Script::Cid`) pass, keeping their compile-time failure behavior; the
+/// detected kind of a `Script::Cid` reference resolves at execution time.
+pub(crate) fn carried_script_violation(
+    version: Version,
+    script: &Script,
+) -> Option<(ScriptKind, Option<ScriptKind>)> {
+    let required = required_script_kind(version);
+    match ScriptKind::detect(script.as_ref()) {
+        Some(actual) if actual != required => Some((required, Some(actual))),
+        _ => None,
+    }
+}
 
 /// a base encoded provenance entry
 pub type EncodedEntry = BaseEncoded<Entry>;
@@ -466,6 +495,11 @@ impl Entry {
         self.prev.clone()
     }
 
+    /// Get the version of the entry
+    pub fn version(&self) -> Version {
+        self.version
+    }
+
     /// Get the sequence number of the entry
     pub fn seqno(&self) -> SeqNo {
         self.seqno
@@ -666,6 +700,17 @@ impl From<&Entry> for Builder {
 }
 
 impl Builder {
+    /// Set the version
+    ///
+    /// The version demands the script kind the entry carries: version 2
+    /// (`Version::CURRENT`) demands WASM components and version 1
+    /// (`Version::LEGACY`) demands core modules. [`Self::try_build`] rejects
+    /// unsupported versions and detectable script-kind mismatches.
+    pub fn with_version(mut self, version: Version) -> Self {
+        self.version = version;
+        self
+    }
+
     /// Set the Vlad
     pub fn with_vlad(mut self, vlad: &Vlad) -> Self {
         self.vlad = Some(vlad.clone());
@@ -727,6 +772,9 @@ impl Builder {
         F: FnMut(&mut Entry) -> Result<BTreeMap<String, Vec<u8>>, Error>,
     {
         let version = self.version;
+        if !version.is_supported() {
+            return Err(EntryError::InvalidVersion(version.as_u64() as usize).into());
+        }
         let vlad = self.vlad.clone().ok_or(EntryError::MissingVlad)?;
         let prev = self.prev.clone().unwrap_or_else(Cid::null);
         let seqno = self.seqno.unwrap_or(SeqNo::FIRST);
@@ -750,6 +798,16 @@ impl Builder {
             proofs: BTreeMap::new(),
             cached_cid: OnceCell::new(),
         };
+
+        // an entry carries the script kind its version demands: reject the
+        // unlock script and every lock script whose detected kind mismatches;
+        // undetectable payloads pass and fail later, exactly as today
+        let mut scripts = std::iter::once(&entry.unlock).chain(entry.locks.iter());
+        if let Some((expected, actual)) =
+            scripts.find_map(|script| carried_script_violation(version, script))
+        {
+            return Err(EntryError::WrongScriptKind { expected, actual }.into());
+        }
 
         // call the gen_proofs closure to create and store the proof data
         entry.proofs = gen_proofs(&mut entry)?;

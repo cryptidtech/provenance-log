@@ -1,0 +1,8 @@
+[build]
+target = "wasm32-wasip2"
+
+# The linker's default 1 MiB stack reservation alone exceeds the 64 KiB
+# linear-memory limit of the verification contexts; a 32 KiB stack keeps the
+# guest's memory minimum at one page.
+[target.wasm32-wasip2]
+rustflags = ["-C", "link-arg=-zstack-size=32768"]

@@ -1,0 +1,26 @@
+// Vendored from the `wacc` crate's `wit/wacc.wit` at wacc 2.2.0.
+// This guest crate stands in its own repository, so it pins this copy of the
+// script interface; refresh it by hand when the wacc host interface changes.
+
+package cryptid:wacc@1.0.0;
+
+interface host {
+    push: func(key: string) -> bool;
+    push-value: func(data: list<u8>) -> bool;
+    branch: func(key: string) -> string;
+    check-eq: func(key: string) -> bool;
+    check-preimage: func(key: string) -> bool;
+    check-preimage-value: func(hash: list<u8>, key: string) -> bool;
+    check-signature: func(key: string, msg: string) -> bool;
+    log: func(text: string) -> bool;
+}
+
+world unlock-script {
+    import host;
+    export for-great-justice: func() -> s32;
+}
+
+world lock-script {
+    import host;
+    export move-every-zig: func() -> s32;
+}

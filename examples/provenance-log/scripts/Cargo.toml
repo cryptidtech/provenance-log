@@ -1,0 +1,7 @@
+# The example guest components of provenance-log build as a standalone Cargo
+# workspace: each member compiles a WASM component for the wasm32-wasip2
+# target, and the Makefile next to this file copies the artifacts into the
+# fixture directory that tests/component_scripts.rs loads.
+[workspace]
+resolver = "2"
+members = ["unlock", "lock", "first"]
