@@ -20,6 +20,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-wasip2
 
       - name: Check Code Format
         run: cargo fmt --all -- --check
@@ -29,6 +30,12 @@ jobs:
 
       - name: Build
         run: cargo build --verbose
+
+      - name: Build Script Fixtures
+        # Builds the example guest components that tests/component_scripts.rs
+        # loads. During development this run needs the sibling `wacc` checkout:
+        # the [patch.crates-io] block in Cargo.toml resolves wacc to it.
+        run: make -C examples/provenance-log/scripts guests
 
       - name: Run tests
         run: cargo test --verbose

@@ -7,12 +7,14 @@
 //!
 //! ## StoreLimits (Memory & Resource Constraints)
 //! - **Memory Size**: 64 KB (1 << 16) - Limits linear memory size to prevent memory exhaustion
-//! - **Instances**: 2 - Maximum number of WASM instances
+//! - **Instances**: 8 - Maximum number of WASM instances (component guests
+//!   from the wit-bindgen recipe embed three core modules, so instantiation
+//!   creates three core instances and needs headroom)
 //! - **Memories**: 1 - Maximum number of WASM linear memories
 //! - **Tables**: 0 (default) - WASM table count (not explicitly set)
 //!
-//! These limits are applied to both unlock and lock script execution contexts (see lines 239-243
-//! and 358-362).
+//! These limits are applied to both unlock and lock script execution contexts;
+//! see the two `StoreLimitsBuilder` uses in `VerifyIter::next`.
 //!
 //! ## Fuel Limits (Instruction Counting)
 //! The wacc VM uses Wasmtime's fuel-based execution limiting, which provides instruction-level
@@ -563,7 +565,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                 log: Vec::default(),
                 limiter: StoreLimitsBuilder::new()
                     .memory_size(1 << 16)
-                    .instances(2)
+                    .instances(8)
                     .memories(1)
                     .build(),
             };
@@ -705,7 +707,7 @@ impl<'a> Iterator for VerifyIter<'a> {
                     log: Vec::default(),
                     limiter: StoreLimitsBuilder::new()
                         .memory_size(1 << 16)
-                        .instances(2)
+                        .instances(8)
                         .memories(1)
                         .build(),
                 };

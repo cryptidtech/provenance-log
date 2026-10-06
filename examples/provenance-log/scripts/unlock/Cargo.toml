@@ -1,0 +1,11 @@
+[package]
+name = "unlock"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { version = "0.46", default-features = false, features = ["macros", "realloc"] }
+dlmalloc = { version = "0.2", features = ["global"] }
