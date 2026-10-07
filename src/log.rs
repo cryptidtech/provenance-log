@@ -89,10 +89,11 @@ pub type Entries = BTreeMap<Cid, Entry>;
 ///
 /// Call [`verify()`](Self::verify) to validate the entire log:
 ///
-/// 1. For each entry, execute its unlock script
-/// 2. Execute applicable lock scripts from the previous entry
-/// 3. If all scripts succeed, apply the entry's operations to the virtual key-value store
-/// 4. Continue with the next entry
+/// 1. For each entry, confirm the entry against its alleged Cid
+/// 2. For each entry, execute its unlock script
+/// 3. Execute applicable lock scripts from the previous entry
+/// 4. If all scripts succeed, apply the entry's operations to the virtual key-value store
+/// 5. Continue with the next entry
 ///
 /// ```rust,no_run
 /// # use provenance_log::Log;
@@ -380,7 +381,10 @@ impl<'a> Iterator for EntryIter<'a> {
 }
 
 struct VerifyIter<'a> {
-    entries: Vec<&'a Entry>,
+    /// each entry paired with its alleged Cid (the map key it is stored
+    /// under). `next` confirms every entry against its alleged Cid before
+    /// the chain checks run.
+    entries: Vec<(Cid, &'a Entry)>,
     seqno: usize,
     prev_seqno: usize,
     /// CID of the previously-validated entry (null for the genesis check).
@@ -400,7 +404,23 @@ impl<'a> Iterator for VerifyIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         //println!("iter::next({})", self.seqno);
-        let entry = *self.entries.get(self.seqno)?;
+        let (alleged_cid, entry) = self.entries.get(self.seqno)?;
+        let entry = *entry;
+
+        // confirm the entry against its alleged Cid, the map key it is stored
+        // under. Entry::cid() recomputes the CID from the serialized entry
+        // content, so a mismatch means the stored key is not the content
+        // address of the entry. The decode paths stay permissive and insert
+        // keys unchecked, so verification is the enforcement gate for this
+        // invariant.
+        if entry.cid() != *alleged_cid {
+            self.seqno = self.entries.len();
+            self.error = Some(LogError::EntryCidMismatch.into());
+            return Some(Err(self
+                .error
+                .take()
+                .expect("error should be Some as it was just set above")));
+        }
 
         // the first entry processed MUST be a true
         // genesis — sequence number 0 with a null prev link. The iterator
@@ -476,9 +496,9 @@ impl<'a> Iterator for VerifyIter<'a> {
             let lipmaa_target_entry = self
                 .entries
                 .iter()
-                .find(|e| e.seqno == expected_lipmaa_seqno);
+                .find(|(_, e)| e.seqno == expected_lipmaa_seqno);
 
-            if let Some(target_entry) = lipmaa_target_entry {
+            if let Some((_, target_entry)) = lipmaa_target_entry {
                 // Verify the Lipmaa link points to the correct entry's CID
                 if entry.lipmaa != target_entry.cid() {
                     self.seqno = self.entries.len();
@@ -832,9 +852,13 @@ impl Log {
 
     /// Verifies all entries in the log
     pub fn verify(&self) -> impl Iterator<Item = Result<(usize, Entry, Kvp<'_>), Error>> {
-        // get a list of Entry objects, sort them by seqno
-        let mut entries: Vec<&Entry> = self.entries.values().collect();
-        entries.sort();
+        // get a list of the entries with their alleged Cids, sort by seqno
+        let mut entries: Vec<(Cid, &Entry)> = self
+            .entries
+            .iter()
+            .map(|(cid, entry)| (cid.clone(), entry))
+            .collect();
+        entries.sort_by(|a, b| a.1.cmp(b.1));
         VerifyIter {
             entries,
             seqno: 0,
