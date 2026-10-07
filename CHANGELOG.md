@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-10-06
+
+### Fixed
+
+- `Log::verify()` now rejects any entry stored under a Cid that its content does not hash to (`LogError::EntryCidMismatch`), which closes the second half of issue #4. A decoded forged log also fails `Log::try_append` with the same error wrapped in `LogError::VerifyFailed`.
+
 ## [2.3.0] - 2026-10-06
 
 ### Added
