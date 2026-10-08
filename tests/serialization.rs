@@ -16,7 +16,7 @@
 use multi_cid::cid;
 use multi_codec::Codec;
 use multi_hash::mh;
-use multi_key::{EncodedMultikey, Multikey, Views};
+use multi_key::{EncodedMultikey, Multikey, ViewBuilder};
 #[cfg(feature = "dag_cbor")]
 use multi_trait::Null;
 use multi_trait::TryDecodeFrom;
@@ -56,7 +56,7 @@ fn create_test_vlad(key: &Multikey) -> Vlad {
 
 /// Helper function to create an update op with a public key
 fn get_key_update_op(k: &str, key: &Multikey) -> Op {
-    let kcv = key.conv_view().unwrap();
+    let kcv = ViewBuilder::new(key).conv().build().unwrap();
     let pk = kcv.to_public_key().unwrap();
     Op::Update(k.try_into().unwrap(), Value::Data(pk.into()))
 }
@@ -82,7 +82,7 @@ fn test_entry_serialization_roundtrip() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -167,7 +167,7 @@ fn test_log_serialization_roundtrip() {
         .add_op(&get_key_update_op("/vlad/key", &key))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -225,7 +225,7 @@ fn test_log_serialization_with_multiple_entries() {
         .add_op(&get_key_update_op("/keys/primary", &key1))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key1.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key1).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -244,7 +244,7 @@ fn test_log_serialization_with_multiple_entries() {
         .add_op(&get_key_update_op("/keys/primary", &key2))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key1.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key1).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -266,7 +266,7 @@ fn test_log_serialization_with_multiple_entries() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key2.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key2).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();

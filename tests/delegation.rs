@@ -15,7 +15,7 @@
 use multi_cid::cid;
 use multi_codec::Codec;
 use multi_hash::mh;
-use multi_key::{EncodedMultikey, Multikey, Views};
+use multi_key::{EncodedMultikey, Multikey, ViewBuilder};
 use multi_vlad::{vlad, Vlad};
 use provenance_log::{entry, log, Key, Op, Script, SeqNo, Value, Version};
 use std::path::PathBuf;
@@ -66,7 +66,7 @@ fn create_test_vlad(key: &Multikey) -> Vlad {
 
 /// Helper function to create an update op with a public key
 fn get_key_update_op(k: &str, key: &Multikey) -> Op {
-    let kcv = key.conv_view().unwrap();
+    let kcv = ViewBuilder::new(key).conv().build().unwrap();
     let pk = kcv.to_public_key().unwrap();
     Op::Update(k.try_into().unwrap(), Value::Data(pk.into()))
 }
@@ -102,7 +102,7 @@ fn test_branch_specific_delegation() {
         .add_op(&get_key_update_op("/data/pubkey", &data_key))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = root_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&root_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -127,7 +127,7 @@ fn test_branch_specific_delegation() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = admin_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&admin_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -152,7 +152,7 @@ fn test_branch_specific_delegation() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = data_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&data_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -209,7 +209,7 @@ fn test_delegation_prevents_cross_branch_modification() {
         .add_op(&get_key_update_op("/admin/pubkey", &admin_key))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = root_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&root_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -234,7 +234,7 @@ fn test_delegation_prevents_cross_branch_modification() {
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
             // Admin key tries to sign (not authorized for /system/)
-            let sv = admin_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&admin_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -320,7 +320,7 @@ fn test_force_recovery_with_precedence() {
         .add_op(&get_key_update_op("/recovery/pubkey", &recovery_key))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = root_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&root_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -372,7 +372,7 @@ fn test_multiple_delegation_levels() {
         .add_op(&get_key_update_op("/org/dept/pubkey", &level2_key))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = root_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&root_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -397,7 +397,7 @@ fn test_multiple_delegation_levels() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = level1_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&level1_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -422,7 +422,7 @@ fn test_multiple_delegation_levels() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = level2_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&level2_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -560,7 +560,7 @@ fn test_delegation_key_rotation() {
         .add_op(&get_key_update_op("/delegated/pubkey", &old_delegate))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = root_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&root_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -584,7 +584,7 @@ fn test_delegation_key_rotation() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = old_delegate.sign_view().unwrap();
+            let sv = ViewBuilder::new(&old_delegate).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -605,7 +605,7 @@ fn test_delegation_key_rotation() {
         .add_op(&get_key_update_op("/delegated/pubkey", &new_delegate)) // Rotate key
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = root_key.sign_view().unwrap(); // Root authority
+            let sv = ViewBuilder::new(&root_key).sign().build().unwrap(); // Root authority
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -629,7 +629,7 @@ fn test_delegation_key_rotation() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = new_delegate.sign_view().unwrap();
+            let sv = ViewBuilder::new(&new_delegate).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();

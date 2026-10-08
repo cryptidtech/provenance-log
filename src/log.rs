@@ -1019,7 +1019,7 @@ mod tests {
     use super::*;
     use crate::{Key, Op, SeqNo, Value};
     use multi_hash::mh;
-    use multi_key::{EncodedMultikey, Multikey, Views};
+    use multi_key::{EncodedMultikey, Multikey, ViewBuilder};
     use multi_vlad::vlad;
     use std::path::PathBuf;
 
@@ -1036,7 +1036,7 @@ mod tests {
     }
 
     fn get_key_update_op(k: &str, key: &Multikey) -> Op {
-        let kcv = key.conv_view().unwrap();
+        let kcv = ViewBuilder::new(key).conv().build().unwrap();
         let pk = kcv.to_public_key().unwrap();
         Op::Update(k.try_into().unwrap(), Value::Data(pk.into()))
     }
@@ -1104,10 +1104,10 @@ mod tests {
                 // get the serialized version of the entry (with empty proof)
                 let ev: Vec<u8> = e.clone().into();
                 // sign with the advanced stateful key: leaf 1 is consumed
-                let sv = advanced.sign_view().unwrap();
+                let sv = ViewBuilder::new(&advanced).sign().build().unwrap();
                 let (ms, advanced2) = sv.sign_advance(&ev, false, None).unwrap();
                 // leaf 1 was the last leaf; the tree is now exhausted
-                let mv = advanced2.merkle_state_view().unwrap();
+                let mv = ViewBuilder::new(&advanced2).merkle_state().build().unwrap();
                 assert_eq!(mv.next_index().unwrap(), 2);
                 assert_eq!(mv.remaining_signatures().unwrap(), 0);
                 // store the signature as proof
@@ -1183,8 +1183,9 @@ mod tests {
             .add_op(&xmss_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = ephemeral
-                    .sign_view()
+                let ms = ViewBuilder::new(&ephemeral)
+                    .sign()
+                    .build()
                     .unwrap()
                     .sign(&ev, false, None)
                     .unwrap();
@@ -1204,7 +1205,12 @@ mod tests {
             .add_op(&xmss_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = xmss.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                let ms = ViewBuilder::new(&xmss)
+                    .sign()
+                    .build()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
                 assert_eq!(ms.sig_index(), Some(0));
                 Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
             })
@@ -1234,7 +1240,12 @@ mod tests {
             .add_op(&xmss_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = xmss.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                let ms = ViewBuilder::new(&xmss)
+                    .sign()
+                    .build()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
                 assert_eq!(ms.sig_index(), Some(0)); // reused index
                 Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
             })
@@ -1301,8 +1312,9 @@ mod tests {
             .add_op(&lamport_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = ephemeral
-                    .sign_view()
+                let ms = ViewBuilder::new(&ephemeral)
+                    .sign()
+                    .build()
                     .unwrap()
                     .sign(&ev, false, None)
                     .unwrap();
@@ -1321,7 +1333,12 @@ mod tests {
             .add_op(&lamport_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = lamport.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                let ms = ViewBuilder::new(&lamport)
+                    .sign()
+                    .build()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
                 Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
             })
             .unwrap();
@@ -1353,7 +1370,12 @@ mod tests {
             .add_op(&lamport_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = lamport.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                let ms = ViewBuilder::new(&lamport)
+                    .sign()
+                    .build()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
                 Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
             })
             .unwrap();
@@ -1423,8 +1445,9 @@ mod tests {
             .add_op(&merkle_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = ephemeral
-                    .sign_view()
+                let ms = ViewBuilder::new(&ephemeral)
+                    .sign()
+                    .build()
                     .unwrap()
                     .sign(&ev, false, None)
                     .unwrap();
@@ -1443,15 +1466,16 @@ mod tests {
             .add_op(&merkle_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let (ms, advanced) = merkle
-                    .sign_view()
+                let (ms, advanced) = ViewBuilder::new(&merkle)
+                    .sign()
+                    .build()
                     .unwrap()
                     .sign_advance(&ev, false, None)
                     .unwrap();
                 // leaf 0 consumed; the advanced state would be persisted here.
                 // A real signer would advance; this test intentionally keeps
                 // using the stale original state below to attempt reuse.
-                let mv = advanced.merkle_state_view().unwrap();
+                let mv = ViewBuilder::new(&advanced).merkle_state().build().unwrap();
                 assert_eq!(mv.next_index().unwrap(), 1);
                 Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
             })
@@ -1487,8 +1511,9 @@ mod tests {
             .add_op(&merkle_primary_op)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = merkle
-                    .sign_view()
+                let ms = ViewBuilder::new(&merkle)
+                    .sign()
+                    .build()
                     .unwrap()
                     .sign_advance(&ev, false, None)
                     .unwrap()
@@ -1567,7 +1592,7 @@ mod tests {
             .add_op(&preimage1_op) // "/preimage"
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let sv = ephemeral.sign_view().unwrap();
+                let sv = ViewBuilder::new(&ephemeral).sign().build().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
                 let sig: Vec<u8> = ms.into();
                 Ok(BTreeMap::from([("primary".to_string(), sig)]))
@@ -1586,7 +1611,7 @@ mod tests {
             .add_op(&pubkey2_op) // "/keys/primary"
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let sv = key1.sign_view().unwrap();
+                let sv = ViewBuilder::new(&key1).sign().build().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
                 let sig: Vec<u8> = ms.into();
                 Ok(BTreeMap::from([("primary".to_string(), sig)]))
@@ -1603,7 +1628,7 @@ mod tests {
             .with_prev(&e2.cid())
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let sv = key2.sign_view().unwrap();
+                let sv = ViewBuilder::new(&key2).sign().build().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
                 let sig: Vec<u8> = ms.into();
                 Ok(BTreeMap::from([("primary".to_string(), sig)]))
@@ -1622,7 +1647,7 @@ mod tests {
             .add_op(&preimage2_op) // "/preimage"
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let sv = key2.sign_view().unwrap();
+                let sv = ViewBuilder::new(&key2).sign().build().unwrap();
                 let ms = sv.sign(&ev, false, None).unwrap();
                 let sig: Vec<u8> = ms.into();
                 Ok(BTreeMap::from([("primary".to_string(), sig)]))
@@ -1667,8 +1692,6 @@ mod tests {
 
     #[test]
     fn test_mid_log_null_prev_link_rejected() {
-        use multi_key::Views as _;
-
         let mut rng = rand_010::rng();
         // stateless keys keep the merkle guard out of the picture; the probe
         // targets the prev-link check alone
@@ -1701,8 +1724,9 @@ mod tests {
             .add_op(&get_key_update_op("/keys/primary", &primary))
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = ephemeral
-                    .sign_view()
+                let ms = ViewBuilder::new(&ephemeral)
+                    .sign()
+                    .build()
                     .unwrap()
                     .sign(&ev, false, None)
                     .unwrap();
@@ -1720,7 +1744,12 @@ mod tests {
             .with_unlock(&unlock)
             .try_build(|e| {
                 let ev: Vec<u8> = e.clone().into();
-                let ms = primary.sign_view().unwrap().sign(&ev, false, None).unwrap();
+                let ms = ViewBuilder::new(&primary)
+                    .sign()
+                    .build()
+                    .unwrap()
+                    .sign(&ev, false, None)
+                    .unwrap();
                 Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
             })
             .unwrap();
