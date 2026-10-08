@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] - 2026-10-07
+
+### Changed
+
+- Migrated the test helpers and integration tests from `multi_key::Views` to `multi_key::ViewBuilder`. Requirements `multi-key` 2.0 → 2.1 and `multi-sig` 1.4 → 1.5. Production code does not use views. No public API changes.
+
 ## [2.3.1] - 2026-10-06
 
 ### Fixed
@@ -287,6 +293,7 @@ Synced from the BetterSign workspace `bs-provenance-log 0.7.0` crate. This is a 
 
 - First approximation. Initial implementation of programmable cryptographic provenance logs.
 
+[2.3.2]: https://github.com/cryptidtech/provenance-log/compare/v2.3.1...v2.3.2
 [2.3.0]: https://github.com/cryptidtech/provenance-log/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/cryptidtech/provenance-log/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/cryptidtech/provenance-log/releases/tag/v2.1.0

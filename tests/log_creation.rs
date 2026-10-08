@@ -13,7 +13,7 @@
 //! - Log builder validation
 //! - Entry linking and sequencing
 
-use multi_key::{EncodedMultikey, Multikey, Views};
+use multi_key::{EncodedMultikey, Multikey, ViewBuilder};
 use multi_vlad::{vlad, Vlad};
 use provenance_log::{entry, log, Entry, Key, Op, Script, SeqNo, Value, Version};
 use std::path::PathBuf;
@@ -57,7 +57,7 @@ fn create_test_vlad(key: &Multikey) -> Vlad {
 
 /// Helper function to create an update op with a public key
 fn get_key_update_op(k: &str, key: &Multikey) -> Op {
-    let kcv = key.conv_view().unwrap();
+    let kcv = ViewBuilder::new(key).conv().build().unwrap();
     let pk = kcv.to_public_key().unwrap();
     Op::Update(k.try_into().unwrap(), Value::Data(pk.into()))
 }
@@ -99,7 +99,7 @@ fn test_create_log_with_single_entry() {
         .add_op(&pubkey_op)
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = ephemeral.sign_view().unwrap();
+            let sv = ViewBuilder::new(&ephemeral).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -149,7 +149,7 @@ fn test_create_log_with_multiple_entries() {
         .add_op(&get_key_update_op("/keys/primary", &key1))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key1.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key1).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -170,7 +170,7 @@ fn test_create_log_with_multiple_entries() {
         .add_op(&get_key_update_op("/keys/primary", &key2))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key1.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key1).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -190,7 +190,7 @@ fn test_create_log_with_multiple_entries() {
         .add_op(&get_key_update_op("/keys/primary", &key3))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key2.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key2).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -251,7 +251,7 @@ fn test_log_append_entry() {
         .add_op(&get_key_update_op("/keys/primary", &key1))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key1.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key1).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -282,7 +282,7 @@ fn test_log_append_entry() {
         .add_op(&get_key_update_op("/keys/primary", &key2))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key1.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key1).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -327,7 +327,7 @@ fn test_forking_logs() {
         .add_op(&get_key_update_op("/keys/primary", &parent_key))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = parent_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&parent_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -365,7 +365,7 @@ fn test_forking_logs() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = child_key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&child_key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();

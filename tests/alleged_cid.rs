@@ -17,7 +17,7 @@
 use multi_cid::{cid, Cid};
 use multi_codec::Codec;
 use multi_hash::mh;
-use multi_key::{EncodedMultikey, Multikey, Views};
+use multi_key::{EncodedMultikey, Multikey, ViewBuilder};
 use multi_vlad::{vlad, Vlad};
 use provenance_log::error::LogError;
 use provenance_log::{entry, log, Entry, Error, Key, Log, Op, Script, SeqNo, Value, Version};
@@ -59,7 +59,7 @@ fn create_test_vlad(key: &Multikey) -> Vlad {
 
 /// Helper function to create an update op with a public key
 fn get_key_update_op(k: &str, key: &Multikey) -> Op {
-    let kcv = key.conv_view().unwrap();
+    let kcv = ViewBuilder::new(key).conv().build().unwrap();
     let pk = kcv.to_public_key().unwrap();
     Op::Update(k.try_into().unwrap(), Value::Data(pk.into()))
 }
@@ -100,7 +100,7 @@ fn build_chain() -> (Script, Vlad, Entry, Entry) {
         .add_op(&get_key_update_op("/keys/primary", &primary))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = ephemeral.sign_view().unwrap();
+            let sv = ViewBuilder::new(&ephemeral).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
         })
@@ -115,7 +115,7 @@ fn build_chain() -> (Script, Vlad, Entry, Entry) {
         .add_op(&get_key_update_op("/keys/primary", &primary))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = primary.sign_view().unwrap();
+            let sv = ViewBuilder::new(&primary).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             Ok(BTreeMap::from([("primary".to_string(), ms.into())]))
         })

@@ -25,7 +25,7 @@
 //! legacy binary suites, the fixture-based tests skip when the fixtures are
 //! missing (run `make -C examples/provenance-log/scripts guests`).
 
-use multi_key::{EncodedMultikey, Multikey, Views};
+use multi_key::{EncodedMultikey, Multikey, ViewBuilder};
 use multi_trait::{EncodeIntoBuffer, TryDecodeFrom};
 use multi_vlad::{vlad, Vlad};
 use provenance_log::error::LogError;
@@ -78,7 +78,7 @@ fn create_test_vlad(key: &Multikey) -> Vlad {
 
 /// Helper function to create an update op with a public key
 fn get_key_update_op(k: &str, key: &Multikey) -> Op {
-    let kcv = key.conv_view().unwrap();
+    let kcv = ViewBuilder::new(key).conv().build().unwrap();
     let pk = kcv.to_public_key().unwrap();
     Op::Update(k.try_into().unwrap(), Value::Data(pk.into()))
 }
@@ -89,7 +89,7 @@ fn sign_with(
 ) -> impl FnMut(&mut entry::Entry) -> Result<BTreeMap<String, Vec<u8>>, Error> {
     move |entry| {
         let entry_bytes: Vec<u8> = entry.clone().into();
-        let sv = key.sign_view().unwrap();
+        let sv = ViewBuilder::new(&key).sign().build().unwrap();
         let ms = sv.sign(&entry_bytes, false, None).unwrap();
         let sig: Vec<u8> = ms.into();
         Ok(BTreeMap::from([("primary".to_string(), sig)]))

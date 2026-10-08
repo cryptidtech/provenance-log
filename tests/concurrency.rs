@@ -12,7 +12,7 @@
 //! - Send + Sync trait bounds (compile-time)
 //! - Thread-safe data structures
 
-use multi_key::{EncodedMultikey, Multikey, Views};
+use multi_key::{EncodedMultikey, Multikey, ViewBuilder};
 use multi_trait::Null;
 use multi_vlad::{vlad, Vlad};
 use provenance_log::{entry, log, Entry, Key, Log, Op, Script, SeqNo, Value, Version};
@@ -52,7 +52,7 @@ fn create_test_vlad(key: &Multikey) -> Vlad {
 
 /// Helper function to create an update op with a public key
 fn get_key_update_op(k: &str, key: &Multikey) -> Op {
-    let kcv = key.conv_view().unwrap();
+    let kcv = ViewBuilder::new(key).conv().build().unwrap();
     let pk = kcv.to_public_key().unwrap();
     Op::Update(k.try_into().unwrap(), Value::Data(pk.into()))
 }
@@ -106,7 +106,7 @@ fn test_concurrent_log_reads() {
         .add_op(&get_key_update_op("/keys/primary", &key))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -128,7 +128,7 @@ fn test_concurrent_log_reads() {
         ))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
@@ -238,7 +238,7 @@ fn test_concurrent_log_iteration() {
         .add_op(&get_key_update_op("/vlad/key", &key))
         .try_build(|e| {
             let ev: Vec<u8> = e.clone().into();
-            let sv = key.sign_view().unwrap();
+            let sv = ViewBuilder::new(&key).sign().build().unwrap();
             let ms = sv.sign(&ev, false, None).unwrap();
             {
                 let sig: Vec<u8> = ms.into();
