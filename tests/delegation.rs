@@ -277,25 +277,21 @@ fn test_force_recovery_with_precedence() {
     let vlad = create_test_vlad(&root_key);
 
     // Create test CIDs for lock scripts
+    let mut hash_builder = mh::Builder::new(Codec::Sha2256)
+        .expect("SHA2-256 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"normal lock");
     let _cid1 = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha2256, b"normal lock")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 
+    let mut hash_builder = mh::Builder::new(Codec::Sha3256)
+        .expect("SHA3-256 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"recovery lock");
     let _cid2 = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha3256, b"recovery lock")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 
@@ -459,25 +455,21 @@ fn test_lock_script_precedence_ordering() {
     let vlad = create_test_vlad(&key);
 
     // Create test CIDs
+    let mut hash_builder = mh::Builder::new(Codec::Sha2256)
+        .expect("SHA2-256 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"script 1");
     let cid1 = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha2256, b"script 1")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 
+    let mut hash_builder = mh::Builder::new(Codec::Sha3256)
+        .expect("SHA3-256 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"script 2");
     let cid2 = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha3256, b"script 2")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 

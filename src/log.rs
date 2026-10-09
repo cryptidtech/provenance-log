@@ -1042,10 +1042,10 @@ mod tests {
     }
 
     fn get_hash_update_op(k: &str, preimage: &str) -> Op {
-        let mh = mh::Builder::new_from_bytes(Codec::Sha3512, preimage.as_bytes())
-            .unwrap()
-            .try_build()
-            .unwrap();
+        let mut hash_builder = mh::Builder::new(Codec::Sha3512)
+            .expect("SHA3-512 is a hashing codec, a builder for it should always be created");
+        hash_builder.update(preimage.as_bytes());
+        let mh = hash_builder.try_build().unwrap();
         Op::Update(k.try_into().unwrap(), Value::Data(mh.into()))
     }
 
