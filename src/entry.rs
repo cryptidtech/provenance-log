@@ -531,13 +531,20 @@ impl Entry {
             .get_or_init(|| {
                 let mut v = Vec::new();
                 self.encode_into_buffer(&mut v);
+                let mut hash_builder = mh::Builder::new(Codec::Blake3)
+                    .expect("Blake3 is a hashing codec, a builder for it should always be created");
+                hash_builder.update(v.as_slice());
+                // Blake3 is an extendable-output codec in multi-hash 2.0 and requires an
+                // explicit digest length. Every stored entry hashed Blake3 to 32 bytes
+                // under multi-hash 1.1, so pinning 32 keeps the Cid bytes of stored
+                // entries byte-for-byte stable across the builder shape change.
+                hash_builder.output_len(32);
                 cid::Builder::new(Codec::Cidv1)
                     .with_target_codec(Codec::DagCbor)
                     .with_hash(
-                        &mh::Builder::new_from_bytes(Codec::Blake3, v.as_slice())
-                            .expect("Blake3 hashing of entry bytes should never fail")
+                        &hash_builder
                             .try_build()
-                            .expect("Multihash building should never fail with valid Blake3 hash"),
+                            .expect("a Blake3 multihash with a 32 byte digest should always build"),
                     )
                     .try_build()
                     .expect("CID building should never fail with valid hash and codec")
@@ -907,24 +914,20 @@ mod tests {
     fn test_sort_locks_change_lock_order() {
         let vlad = Vlad::default();
         let script = Script::default();
+        let mut hash_builder = mh::Builder::new(Codec::Sha2256)
+            .expect("SHA2-256 is a hashing codec, a builder for it should always be created");
+        hash_builder.update(b"for great justice");
         let cid1 = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
+            .with_hash(&hash_builder.try_build().unwrap())
             .try_build()
             .unwrap();
+        let mut hash_builder = mh::Builder::new(Codec::Sha3256)
+            .expect("SHA3-256 is a hashing codec, a builder for it should always be created");
+        hash_builder.update(b"move every zig");
         let cid2 = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
+            .with_hash(&hash_builder.try_build().unwrap())
             .try_build()
             .unwrap();
         let locks_in1: Vec<Script> = vec![
@@ -996,24 +999,20 @@ mod tests {
     fn test_sort_locks_no_ops() {
         let vlad = Vlad::default();
         let script = Script::default();
+        let mut hash_builder = mh::Builder::new(Codec::Sha2256)
+            .expect("SHA2-256 is a hashing codec, a builder for it should always be created");
+        hash_builder.update(b"for great justice");
         let cid1 = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
+            .with_hash(&hash_builder.try_build().unwrap())
             .try_build()
             .unwrap();
+        let mut hash_builder = mh::Builder::new(Codec::Sha3256)
+            .expect("SHA3-256 is a hashing codec, a builder for it should always be created");
+        hash_builder.update(b"move every zig");
         let cid2 = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
+            .with_hash(&hash_builder.try_build().unwrap())
             .try_build()
             .unwrap();
         let locks_in: Vec<Script> = vec![
@@ -1058,24 +1057,20 @@ mod tests {
     fn test_sort_locks() {
         let vlad = Vlad::default();
         let script = Script::default();
+        let mut hash_builder = mh::Builder::new(Codec::Sha2256)
+            .expect("SHA2-256 is a hashing codec, a builder for it should always be created");
+        hash_builder.update(b"for great justice");
         let cid1 = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha2256, b"for great justice")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
+            .with_hash(&hash_builder.try_build().unwrap())
             .try_build()
             .unwrap();
+        let mut hash_builder = mh::Builder::new(Codec::Sha3256)
+            .expect("SHA3-256 is a hashing codec, a builder for it should always be created");
+        hash_builder.update(b"move every zig");
         let cid2 = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha3256, b"move every zig")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
+            .with_hash(&hash_builder.try_build().unwrap())
             .try_build()
             .unwrap();
         let locks_in: Vec<Script> = vec![
@@ -1156,14 +1151,12 @@ mod tests {
             .unwrap();
 
         // build a cid for Script::Cid
+        let mut hash_builder = mh::Builder::new(Codec::Sha3512)
+            .expect("SHA3-512 is a hashing codec, a builder for it should always be created");
+        hash_builder.update(b"for great justice, move every zig!");
         let cid = cid::Builder::new(Codec::Cidv1)
             .with_target_codec(Codec::DagCbor)
-            .with_hash(
-                &mh::Builder::new_from_bytes(Codec::Sha3512, b"for great justice, move every zig!")
-                    .unwrap()
-                    .try_build()
-                    .unwrap(),
-            )
+            .with_hash(&hash_builder.try_build().unwrap())
             .try_build()
             .unwrap();
 

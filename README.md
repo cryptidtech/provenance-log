@@ -29,7 +29,7 @@ Each entry in the log represents a state transition that must be cryptographical
 provenance-log = "2.0"
 ```
 
-MSRV: Rust 1.85.
+MSRV: Rust 1.99.
 
 ## License
 

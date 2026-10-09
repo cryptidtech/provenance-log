@@ -66,14 +66,15 @@ fn get_key_update_op(k: &str, key: &Multikey) -> Op {
 
 /// A Cid that no entry content in these fixtures hashes to
 fn bogus_cid(hint: &[u8]) -> Cid {
+    // Blake3 is an extendable-output codec in multi-hash 2.0 and requires an
+    // explicit digest length; 32 preserves the length multi-hash 1.1 produced.
+    let mut hash_builder = mh::Builder::new(Codec::Blake3)
+        .expect("Blake3 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(hint);
+    hash_builder.output_len(32);
     cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Blake3, hint)
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap()
 }

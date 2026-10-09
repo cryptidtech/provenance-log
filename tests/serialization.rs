@@ -404,14 +404,12 @@ fn test_script_serialization() {
     assert_eq!(bin_script, deserialized);
 
     // Test CID script
+    let mut hash_builder = mh::Builder::new(Codec::Sha3512)
+        .expect("SHA3-512 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"test script");
     let cid = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha3512, b"test script")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 

@@ -82,14 +82,12 @@ fn sign_with(key: Multikey) -> impl FnMut(&mut Entry) -> Result<BTreeMap<String,
 
 /// Helper function to build a `Script::Cid` reference
 fn cid_script() -> Script {
+    let mut hash_builder = mh::Builder::new(Codec::Sha3512)
+        .expect("SHA3-512 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"for great justice, move every zig!");
     let cid = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha3512, b"for great justice, move every zig!")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
     Script::Cid(Key::default(), cid)

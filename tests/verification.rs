@@ -61,10 +61,10 @@ fn get_key_update_op(k: &str, key: &Multikey) -> Op {
 
 /// Helper function to create a hash update op
 fn get_hash_update_op(k: &str, preimage: &str) -> Op {
-    let mh = mh::Builder::new_from_bytes(Codec::Sha3512, preimage.as_bytes())
-        .unwrap()
-        .try_build()
-        .unwrap();
+    let mut hash_builder = mh::Builder::new(Codec::Sha3512)
+        .expect("SHA3-512 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(preimage.as_bytes());
+    let mh = hash_builder.try_build().unwrap();
     Op::Update(k.try_into().unwrap(), Value::Data(mh.into()))
 }
 
@@ -201,14 +201,12 @@ fn test_preimage_verification() {
         .unwrap();
 
     // Build a cid for Script::Cid
+    let mut hash_builder = mh::Builder::new(Codec::Sha3512)
+        .expect("SHA3-512 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"for great justice, move every zig!");
     let cid = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha3512, b"for great justice, move every zig!")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 
@@ -257,14 +255,12 @@ fn test_invalid_preimage_rejection() {
         .unwrap();
 
     // Build a cid for Script::Cid
+    let mut hash_builder = mh::Builder::new(Codec::Sha3512)
+        .expect("SHA3-512 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"for great justice, move every zig!");
     let cid = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha3512, b"for great justice, move every zig!")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 
@@ -321,25 +317,21 @@ fn test_lock_script_precedence() {
     let unlock = load_script(&Key::default(), "unlock.wast");
 
     // Create a CID for an alternate lock script
+    let mut hash_builder = mh::Builder::new(Codec::Sha2256)
+        .expect("SHA2-256 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"lock script 1");
     let cid1 = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha2256, b"lock script 1")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 
+    let mut hash_builder = mh::Builder::new(Codec::Sha3256)
+        .expect("SHA3-256 is a hashing codec, a builder for it should always be created");
+    hash_builder.update(b"lock script 2");
     let cid2 = cid::Builder::new(Codec::Cidv1)
         .with_target_codec(Codec::DagCbor)
-        .with_hash(
-            &mh::Builder::new_from_bytes(Codec::Sha3256, b"lock script 2")
-                .unwrap()
-                .try_build()
-                .unwrap(),
-        )
+        .with_hash(&hash_builder.try_build().unwrap())
         .try_build()
         .unwrap();
 
